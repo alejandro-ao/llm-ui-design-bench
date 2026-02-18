@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 
 import { GET, POST } from "@/app/api/artifacts/route";
+import { getArtifactByModelId } from "@/lib/artifacts";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-route-tests-"));
@@ -19,6 +20,8 @@ describe("artifact route", () => {
   it("returns artifact list and detail payloads", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     const manifest = [
       {
@@ -68,6 +71,8 @@ describe("artifact route", () => {
   it("ingests a new artifact through POST", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     const request = new NextRequest("http://localhost/api/artifacts", {
       method: "POST",
@@ -86,9 +91,7 @@ describe("artifact route", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const filePath = path.join(projectRoot, "data", "artifacts", "test-agent", "index.html");
-    const html = await fs.readFile(filePath, "utf8");
-
-    expect(html).toContain("agent output");
+    const record = await getArtifactByModelId("test-agent", { projectRoot, preferLocal: true });
+    expect(record?.html).toContain("agent output");
   });
 });

@@ -7,7 +7,7 @@ import {
   type ArtifactManifestEntry,
   upsertArtifact,
 } from "@/lib/artifacts";
-import { getModelConfig } from "@/lib/models";
+import { getModelConfig, inferVendorFromModelId } from "@/lib/models";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +34,12 @@ function toListItem(entry: ArtifactManifestEntry): ArtifactListItem {
   }
 
   const model = getModelConfig(entry.modelId);
+  const sourceRefProvider = entry.sourceRef?.startsWith("huggingface:") ? "huggingface" : undefined;
 
   return {
     ...entry,
-    provider: model?.provider ?? "custom",
-    vendor: model?.vendor ?? "unknown",
+    provider: entry.provider ?? model?.provider ?? sourceRefProvider ?? "custom",
+    vendor: entry.vendor ?? model?.vendor ?? inferVendorFromModelId(entry.modelId),
   };
 }
 
@@ -93,6 +94,8 @@ export async function POST(request: NextRequest) {
       promptVersion: String(payload.promptVersion ?? ""),
       sourceType: String(payload.sourceType ?? "") as "model" | "agent" | "baseline",
       sourceRef: payload.sourceRef ? String(payload.sourceRef) : undefined,
+      provider: payload.provider ? String(payload.provider) : undefined,
+      vendor: payload.vendor ? String(payload.vendor) : undefined,
     });
 
     return NextResponse.json(

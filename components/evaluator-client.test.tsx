@@ -37,58 +37,96 @@ vi.mock("@/components/model-selector", () => ({
 
 import { EvaluatorClient } from "@/components/evaluator-client";
 
-const listPayload = {
-  entries: [
-    {
-      modelId: "baseline",
-      label: "Baseline (Original)",
-      provider: "reference",
-      vendor: "baseline",
-      sourceType: "baseline",
-      artifactPath: "data/artifacts/baseline/index.html",
-      promptVersion: "v1",
-      createdAt: "2026-02-18T00:00:00.000Z",
-    },
-    {
-      modelId: "minimax-m1",
-      label: "MiniMax M1",
-      provider: "huggingface",
-      vendor: "minimax",
-      sourceType: "model",
-      artifactPath: "data/artifacts/minimax-m1/index.html",
-      promptVersion: "v1",
-      createdAt: "2026-02-18T00:10:00.000Z",
-    },
-  ],
-};
-
-const htmlPayload = {
-  baseline: "<html><body>Baseline output</body></html>",
-  "minimax-m1": "<html><body>MiniMax output</body></html>",
-};
+const baseEntries = [
+  {
+    modelId: "baseline",
+    label: "Baseline (Original)",
+    provider: "reference",
+    vendor: "baseline",
+    sourceType: "baseline",
+    artifactPath: "data/artifacts/baseline/index.html",
+    promptVersion: "v1",
+    createdAt: "2026-02-18T00:00:00.000Z",
+  },
+  {
+    modelId: "minimax-m1",
+    label: "MiniMax M1",
+    provider: "huggingface",
+    vendor: "minimax",
+    sourceType: "model",
+    artifactPath: "data/artifacts/minimax-m1/index.html",
+    promptVersion: "v1",
+    createdAt: "2026-02-18T00:10:00.000Z",
+  },
+];
 
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
     window.history.replaceState({}, "", `/?${queryString}`);
 
+    const currentEntries = [...baseEntries];
+    const currentHtml: Record<string, string> = {
+      baseline: "<html><body>Baseline output</body></html>",
+      "minimax-m1": "<html><body>MiniMax output</body></html>",
+    };
+
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
 
-        if (url.startsWith("/api/artifacts?modelId=")) {
-          const modelId = url.split("=")[1] as "baseline" | "minimax-m1";
+        if (url === "/api/generate/hf" && method === "POST") {
+          const body = JSON.parse(String(init?.body)) as { modelId: string };
+
+          const modelId = body.modelId;
+          const generatedEntry = {
+            modelId,
+            label: modelId.split("/").at(-1) ?? modelId,
+            provider: "huggingface",
+            vendor: modelId.split("/")[0] ?? "unknown",
+            sourceType: "model" as const,
+            artifactPath: `data/artifacts/${modelId}/index.html`,
+            promptVersion: "v1",
+            createdAt: "2026-02-18T00:20:00.000Z",
+            sourceRef: `huggingface:${modelId}`,
+          };
+
+          const existingIndex = currentEntries.findIndex((entry) => entry.modelId === modelId);
+          if (existingIndex >= 0) {
+            currentEntries[existingIndex] = generatedEntry;
+          } else {
+            currentEntries.push(generatedEntry);
+          }
+
+          currentHtml[modelId] = "<html><body>Generated output</body></html>";
+
           return new Response(
             JSON.stringify({
-              entry: listPayload.entries.find((entry) => entry.modelId === modelId),
-              html: htmlPayload[modelId],
+              ok: true,
+              entry: generatedEntry,
+            }),
+            { status: 201 },
+          );
+        }
+
+        if (url.startsWith("/api/artifacts?modelId=")) {
+          const modelId = decodeURIComponent(url.split("=")[1] ?? "");
+          return new Response(
+            JSON.stringify({
+              entry: currentEntries.find((entry) => entry.modelId === modelId),
+              html: currentHtml[modelId],
             }),
             { status: 200 },
           );
         }
 
-        return new Response(JSON.stringify(listPayload), { status: 200 });
+        if (url === "/api/artifacts") {
+          return new Response(JSON.stringify({ entries: currentEntries }), { status: 200 });
+        }
+
+        return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
       }),
     );
   });
@@ -124,5 +162,33 @@ describe("EvaluatorClient", () => {
     });
 
     expect(replaceMock).toHaveBeenCalledWith("/?model=baseline", { scroll: false });
+  });
+
+  it("submits hf generation and refreshes the model list", async () => {
+    queryString = "model=minimax-m1";
+    window.history.replaceState({}, "", `/?${queryString}`);
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
+    await user.type(
+      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
+      "moonshotai/kimi-k2-instruct",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Saved and published kimi-k2-instruct.")).toBeInTheDocument();
+    expect(replaceMock).toHaveBeenCalledWith("/?model=moonshotai%2Fkimi-k2-instruct", {
+      scroll: false,
+    });
   });
 });

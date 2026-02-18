@@ -42,3 +42,27 @@ const MODEL_LOOKUP = new Map(CURATED_MODELS.map((model) => [model.id, model]));
 export function getModelConfig(modelId: string): ModelConfig | null {
   return MODEL_LOOKUP.get(modelId) ?? null;
 }
+
+export function inferVendorFromModelId(modelId: string): string {
+  const configured = getModelConfig(modelId);
+  if (configured) {
+    return configured.vendor;
+  }
+
+  const trimmed = modelId.trim();
+  if (!trimmed) {
+    return "unknown";
+  }
+
+  const slashIndex = trimmed.indexOf("/");
+  if (slashIndex > 0) {
+    return trimmed.slice(0, slashIndex).toLowerCase();
+  }
+
+  const dashIndex = trimmed.indexOf("-");
+  if (dashIndex > 0) {
+    return trimmed.slice(0, dashIndex).toLowerCase();
+  }
+
+  return "unknown";
+}

@@ -43,8 +43,8 @@ describe("artifact manifest store", () => {
       "utf8",
     );
 
-    const entries = await listManifestEntries({ projectRoot });
-    const record = await getArtifactByModelId("baseline", { projectRoot });
+    const entries = await listManifestEntries({ projectRoot, preferLocal: true });
+    const record = await getArtifactByModelId("baseline", { projectRoot, preferLocal: true });
 
     expect(entries).toHaveLength(1);
     expect(record?.entry.modelId).toBe("baseline");
@@ -62,7 +62,7 @@ describe("artifact manifest store", () => {
         promptVersion: "v1",
         sourceType: "model",
       },
-      { projectRoot },
+      { projectRoot, preferLocal: true },
     );
 
     expect(entry.modelId).toBe("kimi-k2-instruct");
@@ -89,7 +89,7 @@ describe("artifact manifest store", () => {
           promptVersion: "v1",
           sourceType: "model",
         },
-        { projectRoot },
+        { projectRoot, preferLocal: true },
       ),
     ).rejects.toThrow("javascript: URLs are not allowed");
   });

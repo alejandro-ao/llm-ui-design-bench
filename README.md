@@ -1,21 +1,39 @@
 # Frontend LLM Evaluator
 
-A Next.js + shadcn-based app to compare how different LLMs (and later agents) redesign the same baseline landing page.
+Next.js + shadcn dashboard to compare how different models redesign the same baseline landing page.
 
-## What it does
+## Current capabilities
 
-- Shows a curated dropdown of model outputs.
-- Uses one shared prompt for all models.
-- Renders each model artifact in a sandboxed iframe.
-- Stores artifacts in-repo under `data/artifacts/`.
-- Provides `POST /api/artifacts` for future agent/model ingestion.
+- Browse public generated artifacts in a shared model selector.
+- Generate new artifacts by submitting:
+  - Hugging Face API key (used only for that request)
+  - Hugging Face model ID
+- Call HF Inference Providers and persist generated HTML artifacts.
+- Render artifacts inside a sandboxed iframe.
 
-## Project layout
+## Storage mode
 
-- `baseline/`: original bad design input.
-- `data/artifacts/manifest.json`: available artifact registry.
-- `data/artifacts/<model-id>/index.html`: generated model/agent output.
-- `app/api/artifacts/route.ts`: list/detail/ingest API.
+- Without Supabase env vars: local filesystem fallback (`data/artifacts/*`).
+- With Supabase env vars: shared storage mode for multi-user visibility.
+
+## Supabase setup (shared mode)
+
+1. Run SQL in `supabase/schema.sql`.
+2. Create a storage bucket named `artifacts-html` (or set a custom name in env).
+3. Configure env vars:
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_BUCKET_ARTIFACTS=artifacts-html
+```
+
+Optional:
+
+```bash
+HF_BASE_URL=https://router.huggingface.co/v1/chat/completions
+GENERATION_TIMEOUT_MS=60000
+```
 
 ## Run locally
 
@@ -34,9 +52,16 @@ npm test
 npm run build
 ```
 
-## Ingest a new artifact
+## API endpoints
 
-`POST /api/artifacts` with JSON:
+### `GET /api/artifacts`
+List public artifacts.
+
+### `GET /api/artifacts?modelId=<id>`
+Fetch one artifact HTML + metadata.
+
+### `POST /api/artifacts`
+Manual ingestion endpoint.
 
 ```json
 {
@@ -46,5 +71,15 @@ npm run build
   "sourceType": "agent",
   "html": "<html>...</html>",
   "sourceRef": "optional-run-reference"
+}
+```
+
+### `POST /api/generate/hf`
+Generate and publish from Hugging Face provider model.
+
+```json
+{
+  "hfApiKey": "hf_...",
+  "modelId": "moonshotai/Kimi-K2-Instruct-0905"
 }
 ```

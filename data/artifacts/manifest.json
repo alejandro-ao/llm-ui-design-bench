@@ -6,7 +6,9 @@
     "promptVersion": "v1",
     "createdAt": "2026-02-18T00:00:00.000Z",
     "sourceType": "baseline",
-    "sourceRef": "baseline/index.html"
+    "sourceRef": "baseline/index.html",
+    "provider": "reference",
+    "vendor": "baseline"
   },
   {
     "modelId": "kimi-k2-instruct",
@@ -15,7 +17,9 @@
     "promptVersion": "v1",
     "createdAt": "2026-02-18T00:10:00.000Z",
     "sourceType": "model",
-    "sourceRef": "huggingface:moonshotai/kimi-k2-instruct"
+    "sourceRef": "huggingface:moonshotai/kimi-k2-instruct",
+    "provider": "huggingface",
+    "vendor": "moonshotai"
   },
   {
     "modelId": "minimax-m1",
@@ -24,6 +28,8 @@
     "promptVersion": "v1",
     "createdAt": "2026-02-18T00:20:00.000Z",
     "sourceType": "model",
-    "sourceRef": "huggingface:minimax/minimax-m1"
+    "sourceRef": "huggingface:minimax/minimax-m1",
+    "provider": "huggingface",
+    "vendor": "minimax"
   }
 ]
