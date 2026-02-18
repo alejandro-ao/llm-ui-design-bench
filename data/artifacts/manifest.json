@@ -1,0 +1,29 @@
+[
+  {
+    "modelId": "baseline",
+    "label": "Baseline (Original)",
+    "artifactPath": "data/artifacts/baseline/index.html",
+    "promptVersion": "v1",
+    "createdAt": "2026-02-18T00:00:00.000Z",
+    "sourceType": "baseline",
+    "sourceRef": "baseline/index.html"
+  },
+  {
+    "modelId": "kimi-k2-instruct",
+    "label": "Kimi K2 Instruct",
+    "artifactPath": "data/artifacts/kimi-k2-instruct/index.html",
+    "promptVersion": "v1",
+    "createdAt": "2026-02-18T00:10:00.000Z",
+    "sourceType": "model",
+    "sourceRef": "huggingface:moonshotai/kimi-k2-instruct"
+  },
+  {
+    "modelId": "minimax-m1",
+    "label": "MiniMax M1",
+    "artifactPath": "data/artifacts/minimax-m1/index.html",
+    "promptVersion": "v1",
+    "createdAt": "2026-02-18T00:20:00.000Z",
+    "sourceType": "model",
+    "sourceRef": "huggingface:minimax/minimax-m1"
+  }
+]

@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --background: 47 62% 96%;
+  --foreground: 190 28% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 190 28% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 190 28% 14%;
+  --primary: 181 49% 24%;
+  --primary-foreground: 46 57% 95%;
+  --secondary: 38 67% 90%;
+  --secondary-foreground: 190 28% 14%;
+  --muted: 46 52% 91%;
+  --muted-foreground: 194 16% 34%;
+  --accent: 28 85% 59%;
+  --accent-foreground: 200 33% 14%;
+  --destructive: 0 72% 48%;
+  --destructive-foreground: 46 57% 95%;
+  --border: 188 27% 78%;
+  --input: 188 27% 78%;
+  --ring: 181 49% 24%;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 10%, hsl(33 86% 73% / 0.45), transparent 38%),
+    radial-gradient(circle at 88% 14%, hsl(184 43% 75% / 0.42), transparent 41%),
+    linear-gradient(180deg, hsl(var(--background)), hsl(43 54% 92%));
+  color: hsl(var(--foreground));
+  font-family: var(--font-body), sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display), serif;
+}
