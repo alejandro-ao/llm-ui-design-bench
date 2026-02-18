@@ -114,6 +114,27 @@ function formatAttemptLogLine(
   return `Attempt ${index + 1}/${total}: ${attempt.model} [${attempt.provider}] ${status}${statusCode}${retrySuffix}`;
 }
 
+function isJsonResponse(response: Response): boolean {
+  const contentType = response.headers.get("content-type") ?? "";
+  return contentType.toLowerCase().includes("application/json");
+}
+
+function getGenerationStatusMessage(status: number): string {
+  if (status === 504 || status === 408) {
+    return "Generation timed out upstream. Try a faster model/provider or retry.";
+  }
+
+  if (status === 429) {
+    return "Generation was rate limited. Retry in a moment.";
+  }
+
+  if (status >= 500) {
+    return "Generation failed due to an upstream provider error. Retry shortly.";
+  }
+
+  return `Generation failed with status ${status}.`;
+}
+
 export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -229,6 +250,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         );
 
         if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error("Artifact not available for this model yet.");
+          }
+
           throw new Error("Unable to load artifact preview.");
         }
 
@@ -239,10 +264,14 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         }
 
         setHtml(payload.html);
-      } catch {
+      } catch (error) {
         if (active) {
           setHtml(null);
-          setErrorMessage("Unable to load this artifact preview.");
+          setErrorMessage(
+            error instanceof Error && error.message === "Artifact not available for this model yet."
+              ? error.message
+              : "Unable to load this artifact preview.",
+          );
         }
       } finally {
         if (active) {
@@ -315,16 +344,22 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           body: JSON.stringify(body),
         });
 
-        const payload = (await response.json()) as GenerateHfResponse & ApiErrorResponse;
+        const payload = isJsonResponse(response)
+          ? ((await response.json()) as GenerateHfResponse & ApiErrorResponse)
+          : null;
 
-        if (payload.attempts?.length) {
+        if (payload?.attempts?.length) {
           payload.attempts.forEach((attempt, index) => {
             appendGenerationLog(formatAttemptLogLine(attempt, index, payload.attempts?.length ?? 0));
           });
         }
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Generation failed.");
+          throw new Error(payload?.error ?? getGenerationStatusMessage(response.status));
+        }
+
+        if (!payload) {
+          throw new Error("Generation response was not valid JSON.");
         }
 
         if (payload.generation?.attempts?.length) {

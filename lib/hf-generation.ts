@@ -35,6 +35,7 @@ interface GenerateWithHfInput {
   provider?: string;
   prompt: string;
   baselineHtml: string;
+  traceId?: string;
 }
 
 interface AttemptPlan {
@@ -44,6 +45,9 @@ interface AttemptPlan {
 
 const DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1";
 const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
+const DEFAULT_GENERATION_TIMEOUT_MS = 1_200_000;
+const DEFAULT_GENERATION_MAX_TOKENS = 8_192;
+const MIN_ATTEMPT_BUDGET_MS = 1_000;
 const SYSTEM_PROMPT =
   "You are an expert frontend engineer. Return only one complete HTML document with embedded CSS and JS. No markdown fences, no explanations.";
 
@@ -178,16 +182,6 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
-function getRetryDelayMs(attemptIndex: number): number {
-  const baseDelay = attemptIndex === 0 ? 1200 : 2400;
-  const jitter = Math.floor(Math.random() * 401);
-  return baseDelay + jitter;
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function resolveHfBaseUrl(rawBaseUrl: string | undefined): string {
   const input = rawBaseUrl?.trim();
   if (!input) {
@@ -235,10 +229,6 @@ function buildAttemptPlan(modelId: string, providerInput: string | undefined): A
         provider,
       },
       {
-        model: `${modelId}:${provider}`,
-        provider,
-      },
-      {
         model: modelId,
         provider: "auto",
       },
@@ -250,15 +240,57 @@ function buildAttemptPlan(modelId: string, providerInput: string | undefined): A
       model: modelId,
       provider: "auto",
     },
-    {
-      model: modelId,
-      provider: "auto",
-    },
-    {
-      model: modelId,
-      provider: "auto",
-    },
   ];
+}
+
+function resolveGenerationTimeoutMs(rawTimeout: string | undefined): number {
+  const parsed = Number.parseInt(rawTimeout ?? "", 10);
+
+  if (Number.isFinite(parsed) && parsed >= MIN_ATTEMPT_BUDGET_MS) {
+    return parsed;
+  }
+
+  return DEFAULT_GENERATION_TIMEOUT_MS;
+}
+
+function resolveGenerationMaxTokens(rawMaxTokens: string | undefined): number {
+  const parsed = Number.parseInt(rawMaxTokens ?? "", 10);
+
+  if (Number.isFinite(parsed) && parsed >= 256) {
+    return parsed;
+  }
+
+  return DEFAULT_GENERATION_MAX_TOKENS;
+}
+
+function summarizeAttempts(attempts: HfGenerationAttempt[]): Array<Record<string, unknown>> {
+  return attempts.map((attempt) => ({
+    model: attempt.model,
+    provider: attempt.provider,
+    status: attempt.status,
+    statusCode: attempt.statusCode,
+    retryable: attempt.retryable,
+    durationMs: attempt.durationMs,
+    detail: attempt.detail,
+  }));
+}
+
+function logHfGeneration(
+  level: "info" | "warn" | "error",
+  event: string,
+  fields: Record<string, unknown>,
+): void {
+  if (level === "info") {
+    console.info(`[hf-generation] ${event}`, fields);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(`[hf-generation] ${event}`, fields);
+    return;
+  }
+
+  console.error(`[hf-generation] ${event}`, fields);
 }
 
 function parseOpenAiError(error: unknown): {
@@ -368,25 +400,64 @@ export async function generateHtmlWithHuggingFace({
   provider,
   prompt,
   baselineHtml,
+  traceId,
 }: GenerateWithHfInput): Promise<HfGenerationResult> {
-  const timeoutMs = Number.parseInt(process.env.GENERATION_TIMEOUT_MS ?? "600000", 10);
+  const requestId = traceId?.trim() || `hf-${Date.now().toString(36)}`;
+  const timeoutMs = resolveGenerationTimeoutMs(process.env.GENERATION_TIMEOUT_MS);
+  const maxTokens = resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS);
   const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
   const attemptPlan = buildAttemptPlan(modelId, provider);
   const attempts: HfGenerationAttempt[] = [];
-  const client = new OpenAI({
-    apiKey: hfApiKey,
-    baseURL: baseUrl,
-    maxRetries: 0,
-    timeout: timeoutMs,
+  const deadline = Date.now() + timeoutMs;
+
+  logHfGeneration("info", "request_started", {
+    requestId,
+    modelId,
+    provider: provider ?? "auto",
+    timeoutMs,
+    maxTokens,
+    attemptPlan,
+    baseUrl,
   });
 
   for (const [attemptIndex, plan] of attemptPlan.entries()) {
+    const remainingBudgetMs = deadline - Date.now();
+    if (remainingBudgetMs < MIN_ATTEMPT_BUDGET_MS) {
+      logHfGeneration("error", "timeout_budget_exhausted", {
+        requestId,
+        timeoutMs,
+        attempts: summarizeAttempts(attempts),
+      });
+      throw new HFGenerationError(
+        "Generation timed out before another provider attempt could start.",
+        504,
+        attempts,
+      );
+    }
+
+    logHfGeneration("info", "attempt_started", {
+      requestId,
+      attempt: attemptIndex + 1,
+      totalAttempts: attemptPlan.length,
+      model: plan.model,
+      provider: plan.provider,
+      remainingBudgetMs,
+      maxTokens,
+    });
+
+    const client = new OpenAI({
+      apiKey: hfApiKey,
+      baseURL: baseUrl,
+      maxRetries: 0,
+      timeout: remainingBudgetMs,
+    });
     const startedAt = Date.now();
 
     try {
       const payload = await client.chat.completions.create({
         model: plan.model,
         temperature: 0.2,
+        max_tokens: maxTokens,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -398,14 +469,39 @@ export async function generateHtmlWithHuggingFace({
 
       const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
       const html = extractHtmlDocument(content);
+      const finishReason = payload.choices?.[0]?.finish_reason ?? "unknown";
+      const durationMs = Date.now() - startedAt;
 
       attempts.push({
         model: plan.model,
         provider: plan.provider,
         status: "success",
         retryable: false,
-        durationMs: Date.now() - startedAt,
+        durationMs,
       });
+
+      logHfGeneration("info", "attempt_succeeded", {
+        requestId,
+        attempt: attemptIndex + 1,
+        totalAttempts: attemptPlan.length,
+        model: plan.model,
+        provider: plan.provider,
+        durationMs,
+        finishReason,
+        outputChars: html.length,
+        usage: payload.usage ?? null,
+      });
+
+      if (finishReason === "length") {
+        logHfGeneration("warn", "attempt_finish_reason_length", {
+          requestId,
+          attempt: attemptIndex + 1,
+          model: plan.model,
+          provider: plan.provider,
+          outputChars: html.length,
+          usage: payload.usage ?? null,
+        });
+      }
 
       return {
         html,
@@ -415,14 +511,32 @@ export async function generateHtmlWithHuggingFace({
       };
     } catch (error) {
       if (error instanceof HFGenerationError && error.status === 422) {
+        const durationMs = Date.now() - startedAt;
         attempts.push({
           model: plan.model,
           provider: plan.provider,
           status: "error",
           statusCode: error.status,
           retryable: false,
-          durationMs: Date.now() - startedAt,
+          durationMs,
           detail: error.message,
+        });
+
+        logHfGeneration("warn", "attempt_invalid_html", {
+          requestId,
+          attempt: attemptIndex + 1,
+          totalAttempts: attemptPlan.length,
+          model: plan.model,
+          provider: plan.provider,
+          durationMs,
+          detail: error.message,
+        });
+
+        logHfGeneration("error", "request_failed", {
+          requestId,
+          status: error.status,
+          detail: error.message,
+          attempts: summarizeAttempts(attempts),
         });
 
         throw new HFGenerationError(error.message, error.status, attempts);
@@ -431,6 +545,7 @@ export async function generateHtmlWithHuggingFace({
       const parsed = parseOpenAiError(error);
       const userMessage = buildProviderErrorMessage(parsed.status, parsed.detail);
       const canRetry = parsed.retryable && attemptIndex < attemptPlan.length - 1;
+      const durationMs = Date.now() - startedAt;
 
       attempts.push({
         model: plan.model,
@@ -438,17 +553,39 @@ export async function generateHtmlWithHuggingFace({
         status: "error",
         statusCode: parsed.status,
         retryable: canRetry,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         detail: userMessage,
       });
 
+      logHfGeneration(canRetry ? "warn" : "error", "attempt_failed", {
+        requestId,
+        attempt: attemptIndex + 1,
+        totalAttempts: attemptPlan.length,
+        model: plan.model,
+        provider: plan.provider,
+        durationMs,
+        status: parsed.status,
+        retryable: canRetry,
+        upstreamDetail: parsed.detail,
+        userMessage,
+      });
+
       if (!canRetry) {
+        logHfGeneration("error", "request_failed", {
+          requestId,
+          status: parsed.status,
+          detail: userMessage,
+          attempts: summarizeAttempts(attempts),
+        });
         throw new HFGenerationError(userMessage, parsed.status, attempts);
       }
-
-      await sleep(getRetryDelayMs(attemptIndex));
     }
   }
+
+  logHfGeneration("error", "request_failed_no_attempt_succeeded", {
+    requestId,
+    attempts: summarizeAttempts(attempts),
+  });
 
   throw new HFGenerationError(
     "Unable to contact Hugging Face providers.",

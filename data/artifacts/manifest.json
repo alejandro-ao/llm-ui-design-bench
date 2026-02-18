@@ -4,8 +4,8 @@
     "label": "Baseline (Original)",
     "artifactPath": "data/artifacts/baseline/index.html",
     "promptVersion": "v1",
-    "createdAt": "2026-02-18T00:00:00.000Z",
     "sourceType": "baseline",
+    "createdAt": "2026-02-18T00:00:00.000Z",
     "sourceRef": "baseline/index.html",
     "provider": "reference",
     "vendor": "baseline"
@@ -15,19 +15,30 @@
     "label": "Kimi K2 Instruct",
     "artifactPath": "data/artifacts/kimi-k2-instruct/index.html",
     "promptVersion": "v1",
-    "createdAt": "2026-02-18T00:10:00.000Z",
     "sourceType": "model",
+    "createdAt": "2026-02-18T00:10:00.000Z",
     "sourceRef": "huggingface:moonshotai/kimi-k2-instruct",
     "provider": "huggingface",
     "vendor": "moonshotai"
+  },
+  {
+    "modelId": "moonshotai/Kimi-K2.5",
+    "label": "Kimi-K2.5",
+    "artifactPath": "data/artifacts/moonshotai-kimi-k2-5-40ea87c7/index.html",
+    "promptVersion": "v1",
+    "sourceType": "model",
+    "sourceRef": "huggingface:moonshotai/Kimi-K2.5:novita",
+    "provider": "huggingface",
+    "vendor": "moonshotai",
+    "createdAt": "2026-02-18T16:06:08.374Z"
   },
   {
     "modelId": "minimax-m1",
     "label": "MiniMax M1",
     "artifactPath": "data/artifacts/minimax-m1/index.html",
     "promptVersion": "v1",
-    "createdAt": "2026-02-18T00:20:00.000Z",
     "sourceType": "model",
+    "createdAt": "2026-02-18T00:20:00.000Z",
     "sourceRef": "huggingface:minimax/minimax-m1",
     "provider": "huggingface",
     "vendor": "minimax"

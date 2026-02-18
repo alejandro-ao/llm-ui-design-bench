@@ -45,6 +45,8 @@ describe("generateHtmlWithHuggingFace", () => {
     constructorMock.mockReset();
     vi.useRealTimers();
     delete process.env.HF_BASE_URL;
+    delete process.env.GENERATION_TIMEOUT_MS;
+    delete process.env.GENERATION_MAX_TOKENS;
   });
 
   it("returns parsed html and uses backward-compatible HF_BASE_URL parsing", async () => {
@@ -80,22 +82,18 @@ describe("generateHtmlWithHuggingFace", () => {
         maxRetries: 0,
       }),
     );
+    const firstClientConfig = constructorMock.mock.calls[0]?.[0] as { timeout: number };
+    expect(firstClientConfig.timeout).toBeLessThanOrEqual(1_200_000);
+    expect(firstClientConfig.timeout).toBeGreaterThan(1_190_000);
     expect(request.model).toBe("moonshotai/kimi-k2:novita");
-    expect(request).not.toHaveProperty("max_tokens");
+    expect(request.max_tokens).toBe(8192);
     expect(result.html).toContain("generated");
     expect(result.usedProvider).toBe("novita");
     expect(result.attempts).toHaveLength(1);
   });
 
   it("retries provider timeouts and falls back to auto routing", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-
     completionCreateMock
-      .mockRejectedValueOnce(
-        Object.assign(new Error("Gateway timeout"), {
-          status: 504,
-        }),
-      )
       .mockRejectedValueOnce(
         Object.assign(new Error("Gateway timeout"), {
           status: 504,
@@ -111,18 +109,13 @@ describe("generateHtmlWithHuggingFace", () => {
         ],
       });
 
-    vi.useFakeTimers();
-    const generationPromise = generateHtmlWithHuggingFace({
+    const result = await generateHtmlWithHuggingFace({
       hfApiKey: "hf_test_key",
       modelId: "moonshotai/kimi-k2",
       provider: "novita",
       prompt: "Improve design",
       baselineHtml: "<html><body>baseline</body></html>",
     });
-
-    await vi.advanceTimersByTimeAsync(4000);
-    const result = await generationPromise;
-    randomSpy.mockRestore();
 
     const firstCall = completionCreateMock.mock.calls[0]?.[0] as {
       model: string;
@@ -132,22 +125,15 @@ describe("generateHtmlWithHuggingFace", () => {
       model: string;
       max_tokens?: number;
     };
-    const thirdCall = completionCreateMock.mock.calls[2]?.[0] as {
-      model: string;
-      max_tokens?: number;
-    };
 
     expect(firstCall.model).toBe("moonshotai/kimi-k2:novita");
-    expect(secondCall.model).toBe("moonshotai/kimi-k2:novita");
-    expect(thirdCall.model).toBe("moonshotai/kimi-k2");
-    expect(firstCall).not.toHaveProperty("max_tokens");
-    expect(secondCall).not.toHaveProperty("max_tokens");
-    expect(thirdCall).not.toHaveProperty("max_tokens");
+    expect(secondCall.model).toBe("moonshotai/kimi-k2");
+    expect(firstCall.max_tokens).toBe(8192);
+    expect(secondCall.max_tokens).toBe(8192);
     expect(result.usedProvider).toBe("auto");
-    expect(result.attempts).toHaveLength(3);
+    expect(result.attempts).toHaveLength(2);
     expect(result.attempts[0]?.retryable).toBe(true);
-    expect(result.attempts[1]?.retryable).toBe(true);
-    expect(result.attempts[2]?.status).toBe("success");
+    expect(result.attempts[1]?.status).toBe("success");
   });
 
   it("does not retry non-retryable 404 errors", async () => {
@@ -201,13 +187,99 @@ describe("generateHtmlWithHuggingFace", () => {
     const request = completionCreateMock.mock.calls[0]?.[0] as { model: string };
 
     expect(request.model).toBe("MiniMaxAI/MiniMax-M2.5");
+    expect((request as { max_tokens?: number }).max_tokens).toBe(8192);
     expect(result.usedProvider).toBe("auto");
     expect(result.attempts).toHaveLength(1);
   });
 
-  it("keeps timeout errors user-friendly without leaking HTML", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+  it("respects GENERATION_MAX_TOKENS override", async () => {
+    process.env.GENERATION_MAX_TOKENS = "12000";
+    completionCreateMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: "<!doctype html><html><body>token override</body></html>",
+          },
+        },
+      ],
+    });
 
+    await generateHtmlWithHuggingFace({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+    });
+
+    const request = completionCreateMock.mock.calls[0]?.[0] as { max_tokens?: number };
+    expect(request.max_tokens).toBe(12000);
+  });
+
+  it("does not retry timeout errors when provider is omitted", async () => {
+    completionCreateMock.mockRejectedValueOnce(
+      Object.assign(new Error("Gateway timeout"), {
+        status: 504,
+      }),
+    );
+
+    await expect(
+      generateHtmlWithHuggingFace({
+        hfApiKey: "hf_test_key",
+        modelId: "moonshotai/kimi-k2",
+        prompt: "Improve design",
+        baselineHtml: "<html><body>baseline</body></html>",
+      }),
+    ).rejects.toMatchObject({
+      name: "HFGenerationError",
+      status: 504,
+      attempts: [
+        expect.objectContaining({
+          model: "moonshotai/kimi-k2",
+          provider: "auto",
+          retryable: false,
+        }),
+      ],
+    });
+
+    expect(completionCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying when the total timeout budget is exhausted", async () => {
+    process.env.GENERATION_TIMEOUT_MS = "1000";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    completionCreateMock.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date("2026-01-01T00:00:01.500Z"));
+      throw Object.assign(new Error("Gateway timeout"), {
+        status: 504,
+      });
+    });
+
+    await expect(
+      generateHtmlWithHuggingFace({
+        hfApiKey: "hf_test_key",
+        modelId: "moonshotai/kimi-k2",
+        provider: "novita",
+        prompt: "Improve design",
+        baselineHtml: "<html><body>baseline</body></html>",
+      }),
+    ).rejects.toMatchObject({
+      name: "HFGenerationError",
+      status: 504,
+      message: "Generation timed out before another provider attempt could start.",
+      attempts: [
+        expect.objectContaining({
+          model: "moonshotai/kimi-k2:novita",
+          retryable: true,
+        }),
+      ],
+    });
+
+    expect(completionCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps timeout errors user-friendly without leaking HTML", async () => {
     completionCreateMock.mockRejectedValue(
       Object.assign(
         new Error(
@@ -219,23 +291,29 @@ describe("generateHtmlWithHuggingFace", () => {
       ),
     );
 
-    vi.useFakeTimers();
-    const generationPromise = generateHtmlWithHuggingFace({
-      hfApiKey: "hf_test_key",
-      modelId: "moonshotai/kimi-k2",
-      provider: "novita",
-      prompt: "Improve design",
-      baselineHtml: "<html><body>baseline</body></html>",
-    });
-    const rejectionExpectation = expect(generationPromise).rejects.toMatchObject({
+    await expect(
+      generateHtmlWithHuggingFace({
+        hfApiKey: "hf_test_key",
+        modelId: "moonshotai/kimi-k2",
+        provider: "novita",
+        prompt: "Improve design",
+        baselineHtml: "<html><body>baseline</body></html>",
+      }),
+    ).rejects.toMatchObject({
       name: "HFGenerationError",
       status: 504,
       message:
         "Hugging Face provider timed out. Try another provider, retry, or use a faster model.",
+      attempts: [
+        expect.objectContaining({
+          model: "moonshotai/kimi-k2:novita",
+        }),
+        expect.objectContaining({
+          model: "moonshotai/kimi-k2",
+        }),
+      ],
     });
 
-    await vi.advanceTimersByTimeAsync(4000);
-    await rejectionExpectation;
-    randomSpy.mockRestore();
+    expect(completionCreateMock).toHaveBeenCalledTimes(2);
   });
 });

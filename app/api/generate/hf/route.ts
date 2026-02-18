@@ -1,10 +1,15 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
 import { ArtifactError, getArtifactByModelId, upsertArtifact } from "@/lib/artifacts";
-import { generateHtmlWithHuggingFace, HFGenerationError } from "@/lib/hf-generation";
+import {
+  generateHtmlWithHuggingFace,
+  HFGenerationError,
+  type HfGenerationAttempt,
+} from "@/lib/hf-generation";
 import { inferVendorFromModelId } from "@/lib/models";
 import { PROMPT_VERSION, SHARED_PROMPT } from "@/lib/prompt";
 
@@ -35,6 +40,36 @@ function deriveModelLabel(modelId: string): string {
   const tokens = modelId.split("/").filter(Boolean);
   const fallback = tokens.at(-1) ?? modelId;
   return fallback.slice(0, 120);
+}
+
+function summarizeAttempts(attempts: HfGenerationAttempt[]): Array<Record<string, unknown>> {
+  return attempts.map((attempt) => ({
+    model: attempt.model,
+    provider: attempt.provider,
+    status: attempt.status,
+    statusCode: attempt.statusCode,
+    retryable: attempt.retryable,
+    durationMs: attempt.durationMs,
+    detail: attempt.detail,
+  }));
+}
+
+function logGenerateRoute(
+  level: "info" | "warn" | "error",
+  event: string,
+  fields: Record<string, unknown>,
+): void {
+  if (level === "info") {
+    console.info(`[api/generate/hf] ${event}`, fields);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(`[api/generate/hf] ${event}`, fields);
+    return;
+  }
+
+  console.error(`[api/generate/hf] ${event}`, fields);
 }
 
 function parseModelAndProvider(
@@ -81,8 +116,20 @@ async function getBaselineHtml(): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = randomUUID();
+  const requestStartedAt = Date.now();
   const contentType = request.headers.get("content-type") ?? "";
+  logGenerateRoute("info", "request_received", {
+    requestId,
+    path: request.nextUrl.pathname,
+    contentType,
+  });
+
   if (!contentType.includes("application/json")) {
+    logGenerateRoute("warn", "request_rejected_content_type", {
+      requestId,
+      contentType,
+    });
     return jsonError("Content-Type must be application/json.", 415);
   }
 
@@ -93,16 +140,33 @@ export async function POST(request: NextRequest) {
     const modelInput = payload.modelId?.trim();
 
     if (!hfApiKey) {
+      logGenerateRoute("warn", "request_rejected_missing_api_key", {
+        requestId,
+      });
       return jsonError("Hugging Face API key is required.", 400);
     }
 
     if (!modelInput) {
+      logGenerateRoute("warn", "request_rejected_missing_model_id", {
+        requestId,
+      });
       return jsonError("Model ID is required.", 400);
     }
 
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
+    logGenerateRoute("info", "request_validated", {
+      requestId,
+      modelId,
+      provider: provider ?? "auto",
+      generationTimeoutMs: process.env.GENERATION_TIMEOUT_MS ?? "default",
+      generationMaxTokens: process.env.GENERATION_MAX_TOKENS ?? "default",
+    });
 
     const baselineHtml = await getBaselineHtml();
+    logGenerateRoute("info", "baseline_loaded", {
+      requestId,
+      baselineChars: baselineHtml.length,
+    });
 
     const generation = await generateHtmlWithHuggingFace({
       hfApiKey,
@@ -110,6 +174,14 @@ export async function POST(request: NextRequest) {
       provider,
       prompt: SHARED_PROMPT,
       baselineHtml,
+      traceId: requestId,
+    });
+    logGenerateRoute("info", "generation_completed", {
+      requestId,
+      usedModel: generation.usedModel,
+      usedProvider: generation.usedProvider,
+      attempts: summarizeAttempts(generation.attempts),
+      generatedChars: generation.html.length,
     });
 
     const entry = await upsertArtifact({
@@ -121,6 +193,11 @@ export async function POST(request: NextRequest) {
       sourceRef: `huggingface:${modelId}:${generation.usedProvider}`,
       provider: "huggingface",
       vendor: inferVendorFromModelId(modelId),
+    });
+    logGenerateRoute("info", "request_succeeded", {
+      requestId,
+      modelId: entry.modelId,
+      durationMs: Date.now() - requestStartedAt,
     });
 
     return NextResponse.json(
@@ -137,14 +214,38 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof HFGenerationError) {
+      logGenerateRoute("warn", "request_failed_generation", {
+        requestId,
+        status: error.status,
+        message: error.message,
+        attempts: summarizeAttempts(error.attempts),
+        durationMs: Date.now() - requestStartedAt,
+      });
       return jsonError(error.message, error.status, {
         attempts: error.attempts,
       });
     }
 
     if (error instanceof ArtifactError) {
+      logGenerateRoute("error", "request_failed_artifact", {
+        requestId,
+        status: error.status,
+        message: error.message,
+        durationMs: Date.now() - requestStartedAt,
+      });
       return jsonError(error.message, error.status);
     }
+
+    const unknownError = error as { name?: unknown; message?: unknown };
+    logGenerateRoute("error", "request_failed_unknown", {
+      requestId,
+      name: typeof unknownError.name === "string" ? unknownError.name : "UnknownError",
+      message:
+        typeof unknownError.message === "string"
+          ? unknownError.message
+          : "Unknown generation failure.",
+      durationMs: Date.now() - requestStartedAt,
+    });
 
     return jsonError("Unable to generate artifact from Hugging Face.", 500);
   }

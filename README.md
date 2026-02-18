@@ -33,8 +33,17 @@ Optional:
 
 ```bash
 HF_BASE_URL=https://router.huggingface.co/v1
-GENERATION_TIMEOUT_MS=600000
+GENERATION_TIMEOUT_MS=1200000
+GENERATION_MAX_TOKENS=8192
 ```
+
+`GENERATION_TIMEOUT_MS` is a total wall-clock budget for one `/api/generate/hf` request.
+`GENERATION_MAX_TOKENS` sets the max output tokens requested from the provider.
+If a provider is specified, generation attempts are:
+1) `model:provider`
+2) `model` (HF auto-routing fallback)
+
+For serverless runtimes with hard function limits, set a lower timeout that fits your platform.
 
 ## Run locally
 
