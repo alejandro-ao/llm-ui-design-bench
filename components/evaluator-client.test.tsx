@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const replaceMock = vi.fn();
 let queryString = "model=minimax-m1";
 let lastGenerateBody: {
+  hfApiKey: string;
   modelId: string;
   provider?: string;
+  billTo?: string;
 } | null = null;
 let generateMode: "success" | "nonJson504" = "success";
 let artifact404ModelId: string | null = null;
@@ -81,8 +83,10 @@ function mockFetch() {
 
       if (url === "/api/generate/hf" && method === "POST") {
         const body = JSON.parse(String(init?.body)) as {
+          hfApiKey: string;
           modelId: string;
           provider?: string;
+          billTo?: string;
         };
         lastGenerateBody = body;
 
@@ -267,6 +271,7 @@ describe("EvaluatorClient", () => {
       "moonshotai/kimi-k2-instruct:novita",
     );
     expect(screen.getByPlaceholderText("novita or fastest")).toHaveValue("novita");
+    await user.type(screen.getByPlaceholderText("huggingface"), "my-org");
     await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
 
     await waitFor(() => {
@@ -274,6 +279,12 @@ describe("EvaluatorClient", () => {
     });
 
     expect(screen.getByText("Saved and published kimi-k2-instruct.")).toBeInTheDocument();
+    expect(lastGenerateBody).toMatchObject({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2-instruct",
+      provider: "novita",
+      billTo: "my-org",
+    });
     expect(replaceMock).toHaveBeenCalledWith("/?model=moonshotai%2Fkimi-k2-instruct", {
       scroll: false,
     });
@@ -306,6 +317,7 @@ describe("EvaluatorClient", () => {
       modelId: "moonshotai/kimi-k2-instruct",
     });
     expect(lastGenerateBody).not.toHaveProperty("provider");
+    expect(lastGenerateBody).not.toHaveProperty("billTo");
     expect(
       screen.getByText(/Attempt 1\/1: moonshotai\/kimi-k2-instruct \[auto\] ok/),
     ).toBeInTheDocument();

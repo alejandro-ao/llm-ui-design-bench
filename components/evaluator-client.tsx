@@ -149,6 +149,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [hfApiKey, setHfApiKey] = useState("");
   const [generationModelId, setGenerationModelId] = useState("");
   const [generationProvider, setGenerationProvider] = useState("");
+  const [generationBillTo, setGenerationBillTo] = useState("");
   const [generationLoading, setGenerationLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<string | null>(null);
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
@@ -307,6 +308,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       const apiKey = hfApiKey.trim();
       const providerInput = parsedModel.providerFromModel ?? generationProvider.trim();
       const provider = providerInput ? providerInput.toLowerCase() : "";
+      const billTo = generationBillTo.trim();
 
       if (!apiKey) {
         setGenerationError("Add your Hugging Face API key to run generation.");
@@ -328,12 +330,16 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           hfApiKey: string;
           modelId: string;
           provider?: string;
+          billTo?: string;
         } = {
           hfApiKey: apiKey,
           modelId,
         };
         if (provider) {
           body.provider = provider;
+        }
+        if (billTo) {
+          body.billTo = billTo;
         }
 
         const response = await fetch("/api/generate/hf", {
@@ -402,6 +408,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     [
       appendGenerationLog,
       generationModelId,
+      generationBillTo,
       generationProvider,
       hfApiKey,
       loadEntries,
@@ -479,6 +486,20 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                 <p className="text-[11px] text-muted-foreground">
                   Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill
                   provider. Leave empty to use HF auto-routing.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Bill To (Optional)
+                </p>
+                <Input
+                  value={generationBillTo}
+                  onChange={(event) => setGenerationBillTo(event.target.value)}
+                  placeholder="huggingface"
+                  autoComplete="off"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Sends <code>X-HF-Bill-To</code> with your request when provided.
                 </p>
               </div>
               <Button className="w-full" type="submit" disabled={generationLoading}>

@@ -95,6 +95,7 @@ describe("POST /api/generate/hf", () => {
           hfApiKey: "hf_test_key",
           modelId: "moonshotai/kimi-k2-instruct",
           provider: "novita",
+          billTo: "my-org",
         }),
       }),
     );
@@ -113,6 +114,14 @@ describe("POST /api/generate/hf", () => {
     expect(payload.ok).toBe(true);
     expect(payload.generation.usedProvider).toBe("novita");
     expect(payload.generation.attempts).toEqual(attempts);
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hfApiKey: "hf_test_key",
+        modelId: "moonshotai/kimi-k2-instruct",
+        provider: "novita",
+        billTo: "my-org",
+      }),
+    );
 
     const record = await getArtifactByModelId("moonshotai/kimi-k2-instruct", {
       projectRoot,
@@ -142,6 +151,27 @@ describe("POST /api/generate/hf", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("validates bill_to format", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          billTo: "billing team",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Bill To format is invalid.",
+    });
   });
 
   it("accepts model-id:provider syntax without provider field", async () => {
