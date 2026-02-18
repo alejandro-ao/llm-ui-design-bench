@@ -20,7 +20,6 @@ vi.mock("@/lib/hf-generation", async (importOriginal) => {
 });
 
 import { POST } from "@/app/api/generate/hf/stream/route";
-import { getArtifactByModelId } from "@/lib/artifacts";
 import { HFGenerationError, type HfGenerationAttempt } from "@/lib/hf-generation";
 import {
   buildHfOAuthSessionPayload,
@@ -71,13 +70,38 @@ function extractSseEvents(raw: string): string[] {
     .filter(Boolean);
 }
 
+function extractSseEventPayload<T>(raw: string, eventName: string): T | null {
+  const blocks = raw
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const eventLine = lines.find((line) => line.startsWith("event:"));
+    if (!eventLine || eventLine.replace("event:", "").trim() !== eventName) {
+      continue;
+    }
+
+    const dataLines = lines.filter((line) => line.startsWith("data:"));
+    if (!dataLines.length) {
+      return null;
+    }
+
+    const json = dataLines.map((line) => line.slice("data:".length).trimStart()).join("\n");
+    return JSON.parse(json) as T;
+  }
+
+  return null;
+}
+
 describe("POST /api/generate/hf/stream", () => {
   beforeEach(() => {
     generateStreamMock.mockReset();
     process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 13).toString("base64url");
   });
 
-  it("streams meta->attempt->token->complete->done and persists artifact", async () => {
+  it("streams meta->attempt->token->complete->done without persisting artifact", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
     delete process.env.SUPABASE_URL;
@@ -141,14 +165,27 @@ describe("POST /api/generate/hf/stream", () => {
     expect(events).toContain("token");
     expect(events).toContain("complete");
     expect(events.at(-1)).toBe("done");
-
-    const record = await getArtifactByModelId("moonshotai/kimi-k2-instruct", {
-      projectRoot,
-      preferLocal: true,
+    const completePayload = extractSseEventPayload<{
+      result: {
+        modelId: string;
+        html: string;
+        provider: string;
+      };
+      generation: {
+        usedProvider: string;
+      };
+    }>(rawStream, "complete");
+    expect(completePayload).toMatchObject({
+      result: {
+        modelId: "moonshotai/kimi-k2-instruct",
+        html: "<!doctype html><html><body>stream token</body></html>",
+        provider: "huggingface",
+      },
+      generation: {
+        usedProvider: "novita",
+      },
     });
-
-    expect(record?.html).toContain("stream token");
-    expect(record?.entry.sourceRef).toBe("huggingface:moonshotai/kimi-k2-instruct:novita");
+    expect(rawStream).not.toContain("Saving artifact");
   });
 
   it("emits error with attempts and done on terminal failure", async () => {

@@ -4,21 +4,206 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replaceMock = vi.fn();
 const oauthLoginUrlMock = vi.fn();
-let queryString = "model=minimax-m1";
-let lastGenerateBody: {
+
+type GenerateRequestBody = {
   hfApiKey?: string;
   modelId: string;
-  provider?: string;
   billTo?: string;
-} | null = null;
-let generateMode: "success" | "nonJson504" = "success";
-let artifact404ModelId: string | null = null;
+};
+
+type StreamBehavior =
+  | {
+      kind: "success";
+      html: string;
+      attempts?: Array<{
+        model: string;
+        provider: string;
+        status: "success";
+        retryable: boolean;
+        durationMs: number;
+      }>;
+    }
+  | {
+      kind: "error";
+      message: string;
+      attempts?: Array<{
+        model: string;
+        provider: string;
+        status: "error";
+        statusCode: number;
+        retryable: boolean;
+        durationMs: number;
+        detail: string;
+      }>;
+    }
+  | {
+      kind: "nonJson504";
+    };
+
+interface SearchModelResult {
+  modelId: string;
+  label: string;
+  vendor: string;
+  providers: string[];
+}
+
 let oauthEnabled = true;
 let oauthConnected = false;
 let oauthExpiresAt: number | null = null;
+let baselineHtml = "<html><body>Baseline output</body></html>";
+let generateRequests: GenerateRequestBody[] = [];
+let streamBehaviors: Record<string, StreamBehavior> = {};
+
+const SEARCH_CATALOG: SearchModelResult[] = [
+  {
+    modelId: "moonshotai/Kimi-K2.5",
+    label: "Kimi-K2.5",
+    vendor: "moonshotai",
+    providers: ["auto"],
+  },
+  {
+    modelId: "minimax/MiniMax-M1",
+    label: "MiniMax-M1",
+    vendor: "minimax",
+    providers: ["auto"],
+  },
+  {
+    modelId: "deepseek-ai/DeepSeek-V3",
+    label: "DeepSeek-V3",
+    vendor: "deepseek-ai",
+    providers: ["auto"],
+  },
+  {
+    modelId: "qwen/Qwen2.5-Coder-32B-Instruct",
+    label: "Qwen2.5-Coder-32B-Instruct",
+    vendor: "qwen",
+    providers: ["auto"],
+  },
+  {
+    modelId: "meta-llama/Llama-3.3-70B-Instruct",
+    label: "Llama-3.3-70B-Instruct",
+    vendor: "meta-llama",
+    providers: ["auto"],
+  },
+];
 
 function encodeSseEvent(event: string, payload: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
+function buildSuccessStream(modelId: string, html: string): Response {
+  const provider = "auto";
+  const resolvedAttempts = [
+    {
+      model: modelId,
+      provider,
+      status: "success" as const,
+      retryable: false,
+      durationMs: 900,
+    },
+  ];
+  const events = [
+    encodeSseEvent("meta", {
+      modelId,
+      provider,
+      plannedAttempts: 1,
+    }),
+    encodeSseEvent("attempt", {
+      attemptNumber: 1,
+      totalAttempts: 1,
+      model: modelId,
+      provider,
+      resetCode: false,
+    }),
+    encodeSseEvent("token", { text: html.slice(0, Math.ceil(html.length / 2)) }),
+    encodeSseEvent("token", { text: html.slice(Math.ceil(html.length / 2)) }),
+    encodeSseEvent("complete", {
+      result: {
+        modelId,
+        label: modelId.split("/").at(-1) ?? modelId,
+        provider: "huggingface",
+        vendor: modelId.split("/")[0] ?? "unknown",
+        html,
+      },
+      generation: {
+        usedModel: modelId,
+        usedProvider: provider,
+        attempts: resolvedAttempts,
+      },
+    }),
+    encodeSseEvent("done", {}),
+  ].join("");
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(events));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
+}
+
+function buildErrorStream(
+  modelId: string,
+  message: string,
+  attempts: Extract<StreamBehavior, { kind: "error" }>["attempts"],
+): Response {
+  const provider = "auto";
+  const resolvedAttempts =
+    attempts ??
+    [
+      {
+        model: modelId,
+        provider,
+        status: "error" as const,
+        statusCode: 504,
+        retryable: false,
+        durationMs: 1200,
+        detail: message,
+      },
+    ];
+
+  const events = [
+    encodeSseEvent("meta", {
+      modelId,
+      provider,
+      plannedAttempts: 1,
+    }),
+    encodeSseEvent("attempt", {
+      attemptNumber: 1,
+      totalAttempts: 1,
+      model: modelId,
+      provider,
+      resetCode: false,
+    }),
+    encodeSseEvent("error", {
+      message,
+      attempts: resolvedAttempts,
+    }),
+    encodeSseEvent("done", {}),
+  ].join("");
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(events));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
 }
 
 vi.mock("next/navigation", () => ({
@@ -30,70 +215,18 @@ vi.mock("@huggingface/hub", () => ({
   oauthLoginUrl: (...args: unknown[]) => oauthLoginUrlMock(...args),
 }));
 
-vi.mock("@/components/model-selector", () => ({
-  ModelSelector: ({
-    options,
-    onValueChange,
-    disabled,
-  }: {
-    options: Array<{ modelId: string; label: string }>;
-    onValueChange: (value: string) => void;
-    disabled?: boolean;
-  }) => (
-    <div>
-      {options.map((option) => (
-        <button
-          key={option.modelId}
-          type="button"
-          onClick={() => onValueChange(option.modelId)}
-          disabled={disabled}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  ),
-}));
-
 import { EvaluatorClient } from "@/components/evaluator-client";
 
-const baseEntries = [
-  {
-    modelId: "baseline",
-    label: "Baseline (Original)",
-    provider: "reference",
-    vendor: "baseline",
-    sourceType: "baseline",
-    artifactPath: "data/artifacts/baseline/index.html",
-    promptVersion: "v1",
-    createdAt: "2026-02-18T00:00:00.000Z",
-  },
-  {
-    modelId: "minimax-m1",
-    label: "MiniMax M1",
-    provider: "huggingface",
-    vendor: "minimax",
-    sourceType: "model",
-    artifactPath: "data/artifacts/minimax-m1/index.html",
-    promptVersion: "v1",
-    createdAt: "2026-02-18T00:10:00.000Z",
-  },
-];
-
-let currentEntries = [...baseEntries];
-let currentHtml: Record<string, string> = {
-  baseline: "<html><body>Baseline output</body></html>",
-  "minimax-m1": "<html><body>MiniMax output</body></html>",
-};
-
-function mockFetch() {
+function installFetchMock() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
+      const parsedUrl = new URL(url, "http://localhost");
+      const pathname = parsedUrl.pathname;
 
-      if (url === "/api/auth/hf/config" && method === "GET") {
+      if (pathname === "/api/auth/hf/config" && method === "GET") {
         return new Response(
           JSON.stringify({
             enabled: oauthEnabled,
@@ -112,7 +245,7 @@ function mockFetch() {
         );
       }
 
-      if (url === "/api/auth/hf/session" && method === "GET") {
+      if (pathname === "/api/auth/hf/session" && method === "GET") {
         return new Response(
           JSON.stringify({
             connected: oauthConnected,
@@ -127,12 +260,25 @@ function mockFetch() {
         );
       }
 
-      if (url === "/api/auth/hf/session" && method === "DELETE") {
+      if (pathname === "/api/auth/hf/session" && method === "DELETE") {
         oauthConnected = false;
         oauthExpiresAt = null;
+        return new Response(JSON.stringify({ connected: false }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+      }
+
+      if (pathname === "/api/artifacts" && parsedUrl.searchParams.get("modelId") === "baseline") {
         return new Response(
           JSON.stringify({
-            connected: false,
+            entry: {
+              modelId: "baseline",
+              label: "Baseline (Original)",
+            },
+            html: baselineHtml,
           }),
           {
             status: 200,
@@ -143,33 +289,45 @@ function mockFetch() {
         );
       }
 
-      if (url === "/api/auth/hf/session" && method === "POST") {
-        oauthConnected = true;
-        oauthExpiresAt = Math.floor(Date.now() / 1000) + 600;
-        return new Response(
-          JSON.stringify({
-            connected: true,
-            expiresAt: oauthExpiresAt,
-          }),
-          {
+      if (pathname === "/api/hf/models/search" && method === "GET") {
+        const query = (parsedUrl.searchParams.get("q") ?? "").toLowerCase();
+        const requestedLimit = Number.parseInt(parsedUrl.searchParams.get("limit") ?? "10", 10);
+        const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, requestedLimit)) : 10;
+
+        if (query.trim().length < 2) {
+          return new Response(JSON.stringify({ models: [] }), {
             status: 200,
             headers: {
               "Content-Type": "application/json",
             },
+          });
+        }
+
+        const matches = SEARCH_CATALOG.filter((model) => {
+          return (
+            model.modelId.toLowerCase().includes(query) ||
+            model.label.toLowerCase().includes(query)
+          );
+        }).slice(0, limit);
+
+        return new Response(JSON.stringify({ models: matches }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+        });
       }
 
-      if (url === "/api/generate/hf/stream" && method === "POST") {
-        const body = JSON.parse(String(init?.body)) as {
-          hfApiKey?: string;
-          modelId: string;
-          provider?: string;
-          billTo?: string;
+      if (pathname === "/api/generate/hf/stream" && method === "POST") {
+        const body = JSON.parse(String(init?.body)) as GenerateRequestBody;
+        generateRequests.push(body);
+
+        const behavior = streamBehaviors[body.modelId] ?? {
+          kind: "success" as const,
+          html: `<html><body>${body.modelId} output</body></html>`,
         };
-        lastGenerateBody = body;
 
-        if (generateMode === "nonJson504") {
+        if (behavior.kind === "nonJson504") {
           return new Response("<html><body>Gateway Timeout</body></html>", {
             status: 504,
             headers: {
@@ -178,121 +336,11 @@ function mockFetch() {
           });
         }
 
-        const modelId = body.modelId;
-        const provider = body.provider ?? "auto";
-        const generatedEntry = {
-          modelId,
-          label: modelId.split("/").at(-1) ?? modelId,
-          provider: "huggingface",
-          vendor: modelId.split("/")[0] ?? "unknown",
-          sourceType: "model" as const,
-          artifactPath: `data/artifacts/${modelId}/index.html`,
-          promptVersion: "v1",
-          createdAt: "2026-02-18T00:20:00.000Z",
-          sourceRef: `huggingface:${modelId}:${provider}`,
-        };
-
-        const existingIndex = currentEntries.findIndex((entry) => entry.modelId === modelId);
-        if (existingIndex >= 0) {
-          currentEntries[existingIndex] = generatedEntry;
-        } else {
-          currentEntries.push(generatedEntry);
+        if (behavior.kind === "error") {
+          return buildErrorStream(body.modelId, behavior.message, behavior.attempts);
         }
 
-        currentHtml[modelId] = "<html><body>Generated output</body></html>";
-
-        const streamPayload = [
-          encodeSseEvent("meta", {
-            modelId,
-            provider: body.provider ?? null,
-            plannedAttempts: 1,
-          }),
-          encodeSseEvent("attempt", {
-            attemptNumber: 1,
-            totalAttempts: 1,
-            model: provider === "auto" ? modelId : `${modelId}:${provider}`,
-            provider,
-            resetCode: false,
-          }),
-          encodeSseEvent("token", { text: "<!doctype html><html><body>Generated " }),
-          encodeSseEvent("token", { text: "output</body></html>" }),
-          encodeSseEvent("complete", {
-            entry: generatedEntry,
-            generation: {
-              usedModel: provider === "auto" ? modelId : `${modelId}:${provider}`,
-              usedProvider: provider,
-              attempts: [
-                {
-                  model: provider === "auto" ? modelId : `${modelId}:${provider}`,
-                  provider,
-                  status: "success",
-                  retryable: false,
-                  durationMs: 1000,
-                },
-              ],
-            },
-          }),
-          encodeSseEvent("done", {}),
-        ].join("");
-
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(streamPayload));
-            controller.close();
-          },
-        });
-
-        return new Response(stream, {
-          status: 200,
-          headers: {
-            "Content-Type": "text/event-stream",
-          },
-        });
-      }
-
-      if (url.startsWith("/api/artifacts?modelId=")) {
-        const modelId = decodeURIComponent(url.split("=")[1] ?? "");
-        if (modelId === artifact404ModelId) {
-          return new Response(JSON.stringify({ error: "Artifact not found." }), {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
-        }
-
-        const entry = currentEntries.find((item) => item.modelId === modelId);
-        if (!entry || !currentHtml[modelId]) {
-          return new Response(JSON.stringify({ error: "Artifact not found." }), {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
-        }
-
-        return new Response(
-          JSON.stringify({
-            entry,
-            html: currentHtml[modelId],
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        );
-      }
-
-      if (url === "/api/artifacts") {
-        return new Response(JSON.stringify({ entries: currentEntries }), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        return buildSuccessStream(body.modelId, behavior.html);
       }
 
       return new Response(JSON.stringify({ error: "not found" }), {
@@ -305,199 +353,193 @@ function mockFetch() {
   );
 }
 
+async function addModelFromSearch(query: string, expectedLabel: string) {
+  const user = userEvent.setup();
+  const searchInput = screen.getByLabelText("Search Hugging Face models");
+  await user.clear(searchInput);
+  await user.type(searchInput, query);
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: new RegExp(expectedLabel, "i") })).toBeInTheDocument();
+  });
+
+  await user.click(screen.getByRole("button", { name: new RegExp(expectedLabel, "i") }));
+}
+
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
     oauthLoginUrlMock.mockReset();
     oauthLoginUrlMock.mockResolvedValue("https://huggingface.co/oauth/authorize");
-    lastGenerateBody = null;
-    queryString = "model=minimax-m1";
-    generateMode = "success";
-    artifact404ModelId = null;
+
     oauthEnabled = true;
     oauthConnected = false;
-    oauthExpiresAt = Math.floor(Date.now() / 1000) + 600;
-    window.history.replaceState({}, "", `/?${queryString}`);
+    oauthExpiresAt = Math.floor(Date.now() / 1000) + 900;
+    baselineHtml = "<html><body>Baseline output</body></html>";
+    generateRequests = [];
+    streamBehaviors = {};
 
-    currentEntries = [...baseEntries];
-    currentHtml = {
-      baseline: "<html><body>Baseline output</body></html>",
-      "minimax-m1": "<html><body>MiniMax output</body></html>",
-    };
-
-    mockFetch();
+    window.history.replaceState({}, "", "/");
+    installFetchMock();
   });
 
-  it("restores selection from model query parameter", async () => {
-    queryString = "model=minimax-m1";
-    window.history.replaceState({}, "", `/?${queryString}`);
-
+  it("starts with baseline only and loads baseline preview", async () => {
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("minimax")).toBeInTheDocument();
-  });
-
-  it("changes the preview after selecting another model", async () => {
-    queryString = "model=minimax-m1";
-    window.history.replaceState({}, "", `/?${queryString}`);
-
-    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
-    });
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Baseline \(Original\)/i }));
 
     await waitFor(() => {
       expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
 
-    expect(replaceMock).toHaveBeenCalledWith("/?model=baseline", { scroll: false });
+    expect(screen.getByRole("button", { name: /Baseline \(Original\)/i })).toBeInTheDocument();
+    expect(screen.getByText("No models selected yet.")).toBeInTheDocument();
   });
 
-  it("submits hf generation and refreshes the model list", async () => {
-    queryString = "model=minimax-m1";
-    window.history.replaceState({}, "", `/?${queryString}`);
+  it("adds the top search result when pressing Enter", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const searchInput = screen.getByLabelText("Search Hugging Face models");
+    await user.type(searchInput, "kimi");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Kimi-K2.5/i })).toBeInTheDocument();
+    });
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Kimi-K2.5/i })).toBeInTheDocument();
+    });
+
+    expect(searchInput).toHaveValue("");
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
+  });
+
+  it("enforces max 4 selected models", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addModelFromSearch("minimax", "MiniMax-M1");
+    await addModelFromSearch("deepseek", "DeepSeek-V3");
+    await addModelFromSearch("qwen", "Qwen2.5-Coder-32B-Instruct");
+    await addModelFromSearch("llama", "Llama-3.3-70B-Instruct");
+
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(4);
+    expect(screen.getByText("You can compare up to 4 models at once.")).toBeInTheDocument();
+  });
+
+  it("runs sequential generation for selected models and shows final preview", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi session output</body></html>",
+    };
+    streamBehaviors["minimax/MiniMax-M1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>MiniMax session output</body></html>",
+    };
 
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addModelFromSearch("minimax", "MiniMax-M1");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
-    await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
-    await user.type(
-      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
-      "moonshotai/kimi-k2-instruct:novita",
-    );
-    expect(screen.getByPlaceholderText("novita or fastest")).toHaveValue("novita");
-    await user.type(screen.getByPlaceholderText("huggingface"), "my-org");
-    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
 
     await waitFor(() => {
-      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
+      expect(screen.getByText("Generated 2 model outputs in this session only.")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Saved and published kimi-k2-instruct.")).toBeInTheDocument();
-    expect(lastGenerateBody).toMatchObject({
-      hfApiKey: "hf_test_key",
-      modelId: "moonshotai/kimi-k2-instruct",
-      provider: "novita",
-      billTo: "my-org",
+    expect(generateRequests).toHaveLength(2);
+    expect(generateRequests[0]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
     });
-    expect(replaceMock).toHaveBeenCalledWith("/?model=moonshotai%2Fkimi-k2-instruct", {
-      scroll: false,
+    expect(generateRequests[1]).toMatchObject({
+      modelId: "minimax/MiniMax-M1",
+      hfApiKey: "hf_manual_key",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax-M1 output")).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole("button", { name: "Code" }));
-    expect(screen.getByText(/Generated output/)).toBeInTheDocument();
+    expect(screen.getByText(/MiniMax session output/i)).toBeInTheDocument();
   });
 
-  it("allows model-only generation without provider", async () => {
-    queryString = "model=minimax-m1";
-    window.history.replaceState({}, "", `/?${queryString}`);
+  it("continues remaining models when one generation fails", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "error",
+      message: "Provider timeout from upstream.",
+    };
+    streamBehaviors["deepseek-ai/DeepSeek-V3"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>DeepSeek success output</body></html>",
+    };
 
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addModelFromSearch("deepseek", "DeepSeek-V3");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
-    await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
-    await user.type(
-      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
-      "moonshotai/kimi-k2-instruct",
-    );
-    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
-    });
-
-    expect(lastGenerateBody).toMatchObject({
-      hfApiKey: "hf_test_key",
-      modelId: "moonshotai/kimi-k2-instruct",
-    });
-    expect(lastGenerateBody).not.toHaveProperty("provider");
-    expect(lastGenerateBody).not.toHaveProperty("billTo");
-    await user.click(screen.getByRole("button", { name: "Code" }));
-    expect(
-      screen.getByText(/Attempt 1\/1: moonshotai\/kimi-k2-instruct \[auto\] ok/),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a deterministic error when generation returns non-JSON 504", async () => {
-    generateMode = "nonJson504";
-
-    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
-    });
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
-    await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
-    await user.type(
-      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
-      "moonshotai/kimi-k2-instruct",
-    );
-    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
 
     await waitFor(() => {
       expect(
-        screen.getByText("Generation timed out upstream. Try a faster model/provider or retry."),
+        screen.getByText(
+          "1 of 2 model generations failed. Completed outputs are available for the rest.",
+        ),
       ).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /Preview/i }));
-    expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
-  });
+    expect(generateRequests).toHaveLength(2);
 
-  it("shows a specific message when selected artifact returns 404", async () => {
-    artifact404ModelId = "minimax-m1";
-
-    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
+    await user.click(screen.getByRole("button", { name: /Kimi-K2.5/i }));
     await waitFor(() => {
-      expect(screen.getByText("Artifact not available for this model yet.")).toBeInTheDocument();
+      expect(screen.getByText("Provider timeout from upstream.")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /DeepSeek-V3/i }));
+    await waitFor(() => {
+      expect(screen.getByTitle("DeepSeek-V3 output")).toBeInTheDocument();
     });
   });
 
-  it("shows generation form only inside the add-model modal", async () => {
-    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
-    expect(screen.queryByPlaceholderText("hf_...")).not.toBeInTheDocument();
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("hf_...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
-  });
-
-  it("shows oauth connected state and supports disconnecting", async () => {
+  it("shows OAuth connected state and allows disconnect", async () => {
     oauthConnected = true;
 
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
 
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
 
     expect(screen.getByText(/Token expires/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Disconnect Hugging Face" }));
@@ -507,44 +549,32 @@ describe("EvaluatorClient", () => {
     });
   });
 
-  it("submits generation without manual api key when oauth session is connected", async () => {
+  it("submits generation without manual key when oauth is connected", async () => {
     oauthConnected = true;
 
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi oauth output</body></html>",
+    };
+
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Add Model" }));
-    await user.type(
-      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
-      "moonshotai/kimi-k2-instruct",
-    );
-    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
 
     await waitFor(() => {
-      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
     });
 
-    expect(lastGenerateBody).toMatchObject({
-      modelId: "moonshotai/kimi-k2-instruct",
-    });
-    expect(lastGenerateBody).not.toHaveProperty("hfApiKey");
-  });
-
-  it("filters the right-side model list using search", async () => {
-    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
-
-    await waitFor(() => {
-      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
-    });
-
-    const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Search models"), "baseline");
-
-    expect(screen.getByRole("button", { name: /Baseline \(Original\)/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /MiniMax M1/i })).not.toBeInTheDocument();
+    expect(generateRequests).toHaveLength(1);
+    expect(generateRequests[0]).toMatchObject({ modelId: "moonshotai/Kimi-K2.5" });
+    expect(generateRequests[0]).not.toHaveProperty("hfApiKey");
   });
 });

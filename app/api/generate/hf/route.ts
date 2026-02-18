@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { ArtifactError, getArtifactByModelId, upsertArtifact } from "@/lib/artifacts";
+import { ArtifactError, getArtifactByModelId } from "@/lib/artifacts";
 import { HfCredentialError, resolveHfApiKeyFromRequest } from "@/lib/hf-auth";
 import {
   generateHtmlWithHuggingFace,
@@ -12,7 +12,7 @@ import {
   type HfGenerationAttempt,
 } from "@/lib/hf-generation";
 import { inferVendorFromModelId } from "@/lib/models";
-import { PROMPT_VERSION, SHARED_PROMPT } from "@/lib/prompt";
+import { SHARED_PROMPT } from "@/lib/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -186,26 +186,23 @@ export async function POST(request: NextRequest) {
       generatedChars: generation.html.length,
     });
 
-    const entry = await upsertArtifact({
+    const result = {
       modelId,
       label: deriveModelLabel(modelId),
-      html: generation.html,
-      promptVersion: PROMPT_VERSION,
-      sourceType: "model",
-      sourceRef: `huggingface:${modelId}:${generation.usedProvider}`,
-      provider: "huggingface",
+      provider: "huggingface" as const,
       vendor: inferVendorFromModelId(modelId),
-    });
+      html: generation.html,
+    };
     logGenerateRoute("info", "request_succeeded", {
       requestId,
-      modelId: entry.modelId,
+      modelId: result.modelId,
       durationMs: Date.now() - requestStartedAt,
     });
 
     return NextResponse.json(
       {
         ok: true,
-        entry,
+        result,
         generation: {
           usedModel: generation.usedModel,
           usedProvider: generation.usedProvider,
@@ -259,6 +256,6 @@ export async function POST(request: NextRequest) {
       durationMs: Date.now() - requestStartedAt,
     });
 
-    return jsonError("Unable to generate artifact from Hugging Face.", 500);
+    return jsonError("Unable to generate output from Hugging Face.", 500);
   }
 }

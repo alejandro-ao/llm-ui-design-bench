@@ -20,7 +20,6 @@ vi.mock("@/lib/hf-generation", async (importOriginal) => {
 });
 
 import { POST } from "@/app/api/generate/hf/route";
-import { getArtifactByModelId } from "@/lib/artifacts";
 import { HFGenerationError, type HfGenerationAttempt } from "@/lib/hf-generation";
 import {
   buildHfOAuthSessionPayload,
@@ -67,7 +66,7 @@ describe("POST /api/generate/hf", () => {
     process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 11).toString("base64url");
   });
 
-  it("generates and persists a public artifact with generation metadata", async () => {
+  it("returns ephemeral generation output with metadata", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
     delete process.env.SUPABASE_URL;
@@ -109,6 +108,13 @@ describe("POST /api/generate/hf", () => {
 
     const payload = (await response.json()) as {
       ok: boolean;
+      result: {
+        modelId: string;
+        label: string;
+        provider: string;
+        vendor: string;
+        html: string;
+      };
       generation: {
         usedModel: string;
         usedProvider: string;
@@ -117,6 +123,13 @@ describe("POST /api/generate/hf", () => {
     };
 
     expect(payload.ok).toBe(true);
+    expect(payload.result).toMatchObject({
+      modelId: "moonshotai/kimi-k2-instruct",
+      label: "kimi-k2-instruct",
+      provider: "huggingface",
+      vendor: "moonshotai",
+    });
+    expect(payload.result.html).toContain("generated page");
     expect(payload.generation.usedProvider).toBe("novita");
     expect(payload.generation.attempts).toEqual(attempts);
     expect(generateMock).toHaveBeenCalledWith(
@@ -128,15 +141,7 @@ describe("POST /api/generate/hf", () => {
       }),
     );
 
-    const record = await getArtifactByModelId("moonshotai/kimi-k2-instruct", {
-      projectRoot,
-      preferLocal: true,
-    });
-
-    expect(record?.html).toContain("generated page");
-    expect(record?.entry.label).toBe("kimi-k2-instruct");
-    expect(record?.entry.provider).toBe("huggingface");
-    expect(record?.entry.sourceRef).toBe("huggingface:moonshotai/kimi-k2-instruct:novita");
+    expect(payload).not.toHaveProperty("entry");
   });
 
   it("validates required hf key", async () => {
@@ -350,14 +355,6 @@ describe("POST /api/generate/hf", () => {
         provider: "novita",
       }),
     );
-
-    const record = await getArtifactByModelId("MiniMaxAI/MiniMax-M2.5", {
-      projectRoot,
-      preferLocal: true,
-    });
-
-    expect(record?.entry.label).toBe("MiniMax-M2.5");
-    expect(record?.entry.sourceRef).toBe("huggingface:MiniMaxAI/MiniMax-M2.5:novita");
   });
 
   it("accepts model-only generation and defaults to auto provider", async () => {
@@ -402,13 +399,6 @@ describe("POST /api/generate/hf", () => {
         provider: undefined,
       }),
     );
-
-    const record = await getArtifactByModelId("MiniMaxAI/MiniMax-M2.5", {
-      projectRoot,
-      preferLocal: true,
-    });
-
-    expect(record?.entry.sourceRef).toBe("huggingface:MiniMaxAI/MiniMax-M2.5:auto");
   });
 
   it("returns error attempts when generation fails", async () => {

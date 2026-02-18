@@ -9,7 +9,7 @@ describe("PreviewFrame", () => {
       <PreviewFrame html={null} title="Empty" loading={false} errorMessage={null} />,
     );
 
-    expect(screen.getByText("Artifact not available yet for this model.")).toBeInTheDocument();
+    expect(screen.getByText("Output not available yet for this model.")).toBeInTheDocument();
   });
 
   it("shows generation overlay activity in main content", () => {
@@ -21,13 +21,11 @@ describe("PreviewFrame", () => {
         errorMessage={null}
         generationLoading
         generationStatus="Contacting Hugging Face provider..."
-        generationLogs={["12:00:00 Started generation"]}
       />,
     );
 
     expect(screen.getByText("Generating...")).toBeInTheDocument();
     expect(screen.getByText("Contacting Hugging Face provider...")).toBeInTheDocument();
-    expect(screen.getByText("12:00:00 Started generation")).toBeInTheDocument();
   });
 
   it("allows zooming out the iframe preview", () => {

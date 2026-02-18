@@ -1,4 +1,3 @@
-import type { ArtifactManifestEntry } from "@/lib/artifacts";
 import type { HfGenerationAttempt } from "@/lib/hf-generation";
 
 export type HfGenerationStreamEventName =
@@ -32,8 +31,16 @@ export interface HfGenerationStreamLogPayload {
   message: string;
 }
 
+export interface HfGenerationStreamResultPayload {
+  modelId: string;
+  label: string;
+  provider: "huggingface";
+  vendor: string;
+  html: string;
+}
+
 export interface HfGenerationStreamCompletePayload {
-  entry: ArtifactManifestEntry;
+  result: HfGenerationStreamResultPayload;
   generation: {
     usedModel: string;
     usedProvider: string;

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { ArtifactError, getArtifactByModelId, upsertArtifact } from "@/lib/artifacts";
+import { ArtifactError, getArtifactByModelId } from "@/lib/artifacts";
 import { HfCredentialError, resolveHfApiKeyFromRequest } from "@/lib/hf-auth";
 import {
   buildHfAttemptPlan,
@@ -20,7 +20,7 @@ import type {
   HfGenerationStreamEventName,
 } from "@/lib/hf-stream-events";
 import { inferVendorFromModelId } from "@/lib/models";
-import { PROMPT_VERSION, SHARED_PROMPT } from "@/lib/prompt";
+import { SHARED_PROMPT } from "@/lib/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -181,22 +181,17 @@ export async function POST(request: NextRequest) {
             });
 
             enqueue("log", {
-              message: "Model output received. Saving artifact.",
-            });
-
-            const entry = await upsertArtifact({
-              modelId,
-              label: deriveModelLabel(modelId),
-              html: generation.html,
-              promptVersion: PROMPT_VERSION,
-              sourceType: "model",
-              sourceRef: `huggingface:${modelId}:${generation.usedProvider}`,
-              provider: "huggingface",
-              vendor: inferVendorFromModelId(modelId),
+              message: "Model output received for this session.",
             });
 
             enqueue("complete", {
-              entry,
+              result: {
+                modelId,
+                label: deriveModelLabel(modelId),
+                provider: "huggingface",
+                vendor: inferVendorFromModelId(modelId),
+                html: generation.html,
+              },
               generation: {
                 usedModel: generation.usedModel,
                 usedProvider: generation.usedProvider,
@@ -225,7 +220,7 @@ export async function POST(request: NextRequest) {
             }
 
             enqueue("error", {
-              message: "Unable to generate artifact from Hugging Face.",
+              message: "Unable to generate output from Hugging Face.",
               attempts: [],
             });
             close();

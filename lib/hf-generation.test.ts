@@ -334,6 +334,7 @@ describe("generateHtmlWithHuggingFaceStreamed", () => {
     constructorMock.mockReset();
     vi.useRealTimers();
     delete process.env.HF_BASE_URL;
+    delete process.env.GENERATION_MAX_TOKENS;
   });
 
   it("streams token chunks and reconstructs html", async () => {
@@ -377,15 +378,51 @@ describe("generateHtmlWithHuggingFaceStreamed", () => {
       },
     });
 
+    const request = completionCreateMock.mock.calls[0]?.[0] as {
+      model: string;
+      stream?: boolean;
+      max_tokens?: number;
+    };
+
     expect(tokens.join("")).toContain("streamed content");
     expect(result.html).toContain("streamed content");
     expect(result.attempts).toHaveLength(1);
+    expect(request.model).toBe("moonshotai/kimi-k2:novita");
+    expect(request.stream).toBe(true);
+    expect(request.max_tokens).toBe(32768);
     expect(attempts).toEqual([
       {
         resetCode: false,
         model: "moonshotai/kimi-k2:novita",
       },
     ]);
+  });
+
+  it("respects GENERATION_MAX_TOKENS override for streaming", async () => {
+    process.env.GENERATION_MAX_TOKENS = "12000";
+    completionCreateMock.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [
+            {
+              delta: {
+                content: "<!doctype html><html><body>token override stream</body></html>",
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    await generateHtmlWithHuggingFaceStreamed({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+    });
+
+    const request = completionCreateMock.mock.calls[0]?.[0] as { max_tokens?: number };
+    expect(request.max_tokens).toBe(12000);
   });
 
   it("retries streaming attempts and marks retry resets", async () => {
