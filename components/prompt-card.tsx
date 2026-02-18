@@ -8,14 +8,14 @@ interface PromptCardProps {
 
 export function PromptCard({ prompt, promptVersion }: PromptCardProps) {
   return (
-    <Card className="border-border/70 bg-white/60">
-      <CardHeader>
-        <CardTitle className="text-xl">Shared Evaluation Prompt</CardTitle>
-        <CardDescription>Prompt version {promptVersion}</CardDescription>
+    <Card className="gap-3 py-3">
+      <CardHeader className="px-3">
+        <CardTitle className="text-sm">Shared Prompt</CardTitle>
+        <CardDescription className="text-xs">v{promptVersion}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <ScrollArea className="h-36 rounded-md border border-border/60 bg-white/60 p-3">
-          <pre className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">{prompt}</pre>
+      <CardContent className="px-3">
+        <ScrollArea className="h-36 rounded-lg bg-muted p-3">
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">{prompt}</pre>
         </ScrollArea>
       </CardContent>
     </Card>

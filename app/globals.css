@@ -1,31 +1,59 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: 47 62% 96%;
-  --foreground: 190 28% 14%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
   --card: 0 0% 100%;
-  --card-foreground: 190 28% 14%;
+  --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 190 28% 14%;
-  --primary: 181 49% 24%;
-  --primary-foreground: 46 57% 95%;
-  --secondary: 38 67% 90%;
-  --secondary-foreground: 190 28% 14%;
-  --muted: 46 52% 91%;
-  --muted-foreground: 194 16% 34%;
-  --accent: 28 85% 59%;
-  --accent-foreground: 200 33% 14%;
-  --destructive: 0 72% 48%;
-  --destructive-foreground: 46 57% 95%;
-  --border: 188 27% 78%;
-  --input: 188 27% 78%;
-  --ring: 181 49% 24%;
-  --radius: 0.75rem;
+  --popover-foreground: 0 0% 9%;
+  --primary: 41 96% 50%;
+  --primary-foreground: 0 0% 9%;
+  --secondary: 40 30% 96%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 44%;
+  --accent: 41 96% 50%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 41 96% 50%;
+  --radius: 0.5rem;
+  --sidebar: 0 0% 98%;
+}
+
+.dark {
+  --background: 0 0% 7%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 41 96% 50%;
+  --primary-foreground: 0 0% 9%;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 41 96% 50%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 41 96% 50%;
+  --sidebar: 0 0% 9%;
 }
 
 @theme inline {
   --font-sans: var(--font-body);
   --font-display: var(--font-display);
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -45,6 +73,7 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-sidebar: hsl(var(--sidebar));
 }
 
 * {
@@ -53,10 +82,7 @@
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 12% 10%, hsl(33 86% 73% / 0.45), transparent 38%),
-    radial-gradient(circle at 88% 14%, hsl(184 43% 75% / 0.42), transparent 41%),
-    linear-gradient(180deg, hsl(var(--background)), hsl(43 54% 92%));
+  background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-body), sans-serif;
 }
@@ -68,4 +94,12 @@ h4,
 h5,
 h6 {
   font-family: var(--font-display), serif;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
 }

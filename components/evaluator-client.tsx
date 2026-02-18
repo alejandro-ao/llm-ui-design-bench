@@ -7,6 +7,7 @@ import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-pan
 import { ModelSelector, type ModelOption } from "@/components/model-selector";
 import { PreviewFrame } from "@/components/preview-frame";
 import { PromptCard } from "@/components/prompt-card";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -543,33 +544,36 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const hasEntries = entries.length > 0;
 
   return (
-    <div className="grid h-full min-h-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-xl shadow-black/10 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border/70 bg-gradient-to-b from-white/90 to-secondary/20 p-4 lg:border-r lg:border-b-0 lg:p-5">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Frontend Evals
-          </p>
-          <h1 className="mt-2 text-2xl leading-tight font-semibold">
-            Model Comparison Dashboard
-          </h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Same prompt. Same baseline. Different model output.
-          </p>
+    <div className="grid h-full min-h-0 overflow-hidden bg-background lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border bg-sidebar p-4 lg:border-r lg:border-b-0">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="inline-flex items-center gap-1.5">
+              <div className="size-2.5 rounded-full bg-primary" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Frontend Evals
+              </span>
+            </div>
+            <h1 className="mt-1.5 text-lg leading-tight font-semibold">
+              Model Comparison
+            </h1>
+          </div>
+          <ThemeToggle />
         </div>
 
-        <Card className="gap-4 border-border/70 bg-white/75 py-4">
-          <CardHeader className="px-4">
-            <CardTitle className="text-base">Generate from Hugging Face</CardTitle>
-            <CardDescription>
+        <Card className="gap-3 py-3">
+          <CardHeader className="px-3">
+            <CardTitle className="text-sm">Generate from HF</CardTitle>
+            <CardDescription className="text-xs">
               Paste your key and any HF provider model ID.
             </CardDescription>
           </CardHeader>
-          <CardContent className="px-4">
-            <form className="space-y-3" onSubmit={handleGenerate}>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <CardContent className="px-3">
+            <form className="space-y-2.5" onSubmit={handleGenerate}>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
                   API Key
-                </p>
+                </label>
                 <Input
                   type="password"
                   value={hfApiKey}
@@ -578,10 +582,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   autoComplete="off"
                 />
               </div>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
                   Model ID
-                </p>
+                </label>
                 <Input
                   value={generationModelId}
                   onChange={(event) => {
@@ -597,50 +601,51 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   autoComplete="off"
                 />
               </div>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Provider (Optional)
-                </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Provider
+                  <span className="ml-1 text-muted-foreground/50">optional</span>
+                </label>
                 <Input
                   value={generationProvider}
                   onChange={(event) => setGenerationProvider(event.target.value)}
                   placeholder="novita or fastest"
                   autoComplete="off"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill
-                  provider. Leave empty to use HF auto-routing.
+                <p className="text-[11px] leading-tight text-muted-foreground/70">
+                  Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill.
                 </p>
               </div>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Bill To (Optional)
-                </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Bill To
+                  <span className="ml-1 text-muted-foreground/50">optional</span>
+                </label>
                 <Input
                   value={generationBillTo}
                   onChange={(event) => setGenerationBillTo(event.target.value)}
                   placeholder="huggingface"
                   autoComplete="off"
                 />
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[11px] leading-tight text-muted-foreground/70">
                   Sends <code>X-HF-Bill-To</code> with your request when provided.
                 </p>
               </div>
-              <Button className="w-full" type="submit" disabled={generationLoading}>
-                {generationLoading ? "Generating..." : "Generate and Publish"}
+              <Button className="w-full" variant="accent" type="submit" disabled={generationLoading}>
+                {generationLoading ? "Generating..." : "Generate & Publish"}
               </Button>
               {generationError ? (
                 <p className="text-xs text-destructive">{generationError}</p>
               ) : null}
               {generationSuccess ? (
-                <p className="text-xs text-primary">{generationSuccess}</p>
+                <p className="text-xs text-green-600 dark:text-green-400">{generationSuccess}</p>
               ) : null}
               {generationLogs.length > 0 && !generationLoading ? (
-                <div className="space-y-1 rounded-lg border border-border/70 bg-secondary/20 p-2.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                    Last Run Activity
+                <div className="space-y-1 rounded-lg bg-muted p-2.5">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Last Run
                   </p>
-                  <ul className="space-y-1 text-[11px] text-muted-foreground">
+                  <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
                     {generationLogs.map((entry, index) => (
                       <li key={`${entry}-${index}`}>{entry}</li>
                     ))}
@@ -651,12 +656,12 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           </CardContent>
         </Card>
 
-        <Card className="gap-4 border-border/70 bg-white/75 py-4">
-          <CardHeader className="px-4">
-            <CardTitle className="text-base">Model Selection</CardTitle>
-            <CardDescription>Pick the artifact to preview</CardDescription>
+        <Card className="gap-3 py-3">
+          <CardHeader className="px-3">
+            <CardTitle className="text-sm">Model Selection</CardTitle>
+            <CardDescription className="text-xs">Pick the artifact to preview</CardDescription>
           </CardHeader>
-          <CardContent className="px-4">
+          <CardContent className="px-3">
             <ModelSelector
               options={entries}
               value={selectedModelId}
@@ -666,51 +671,50 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           </CardContent>
         </Card>
 
-        <Card className="gap-4 border-border/70 bg-white/75 py-4">
-          <CardHeader className="px-4">
-            <CardTitle className="text-base">Model Details</CardTitle>
-            <CardDescription>Metadata for current preview</CardDescription>
+        <Card className="gap-3 py-3">
+          <CardHeader className="px-3">
+            <CardTitle className="text-sm">Details</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 px-4 text-sm">
-            <div className="flex flex-wrap gap-2">
+          <CardContent className="space-y-2.5 px-3 text-sm">
+            <div className="flex flex-wrap gap-1.5">
               <Badge variant="outline">{selectedEntry?.provider ?? "none"}</Badge>
               <Badge variant="secondary">{selectedEntry?.vendor ?? "none"}</Badge>
               <Badge variant="outline">{selectedEntry?.sourceType ?? "none"}</Badge>
             </div>
             <Separator />
-            <div className="space-y-1 text-muted-foreground">
-              <p>
-                <span className="font-semibold text-foreground">Model ID:</span>{" "}
-                {selectedEntry?.modelId ?? "N/A"}
-              </p>
-              <p>
-                <span className="font-semibold text-foreground">Prompt:</span>{" "}
-                {selectedEntry?.promptVersion ?? promptVersion}
-              </p>
-              <p>
-                <span className="font-semibold text-foreground">Updated:</span>{" "}
-                {selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}
-              </p>
-              <p>
-                <span className="font-semibold text-foreground">Source:</span>{" "}
-                {selectedEntry?.sourceRef ?? "N/A"}
-              </p>
-            </div>
+            <dl className="space-y-1 font-mono text-xs text-muted-foreground">
+              <div className="flex gap-2">
+                <dt className="font-medium text-foreground">model</dt>
+                <dd className="truncate">{selectedEntry?.modelId ?? "N/A"}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="font-medium text-foreground">prompt</dt>
+                <dd>{selectedEntry?.promptVersion ?? promptVersion}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="font-medium text-foreground">updated</dt>
+                <dd>{selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="font-medium text-foreground">source</dt>
+                <dd className="truncate">{selectedEntry?.sourceRef ?? "N/A"}</dd>
+              </div>
+            </dl>
           </CardContent>
         </Card>
 
         <PromptCard prompt={prompt} promptVersion={promptVersion} />
       </aside>
 
-      <section className="flex min-h-[62vh] flex-col bg-white lg:min-h-0">
-        <div className="border-b border-border/70 px-4 py-2">
-          <div className="inline-flex rounded-lg border border-border/70 bg-secondary/30 p-1">
+      <section className="flex min-h-[62vh] flex-col bg-background lg:min-h-0">
+        <div className="border-b border-border px-4 py-2">
+          <div className="inline-flex rounded-lg bg-muted p-0.5">
             <button
               type="button"
               onClick={() => setActiveMainTab("code")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                 activeMainTab === "code"
-                  ? "bg-white text-foreground shadow-sm"
+                  ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -719,13 +723,13 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             <button
               type="button"
               onClick={() => setActiveMainTab("app")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                 activeMainTab === "app"
-                  ? "bg-white text-foreground shadow-sm"
+                  ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              App
+              Preview
             </button>
           </div>
         </div>

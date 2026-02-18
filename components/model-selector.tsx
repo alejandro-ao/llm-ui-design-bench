@@ -25,10 +25,12 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ options, value, onValueChange, disabled }: ModelSelectorProps) {
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-semibold text-foreground">Model Output</p>
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-muted-foreground">
+        Model Output
+      </label>
       <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-        <SelectTrigger aria-label="Select model output" className="bg-white/70">
+        <SelectTrigger aria-label="Select model output">
           <SelectValue placeholder="Select a model" />
         </SelectTrigger>
         <SelectContent>

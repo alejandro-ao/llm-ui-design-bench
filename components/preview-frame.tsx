@@ -20,25 +20,25 @@ export function PreviewFrame({
   generationLogs = [],
 }: PreviewFrameProps) {
   return (
-    <div className="relative h-full min-h-[62vh] bg-white lg:min-h-0">
+    <div className="relative h-full min-h-[62vh] bg-background lg:min-h-0">
       {generationLoading ? (
-        <div className="absolute inset-0 z-20 grid place-items-center bg-white/80 px-6 backdrop-blur-sm">
-          <div className="w-full max-w-lg space-y-5 rounded-2xl border border-border/80 bg-card/95 p-6 shadow-2xl shadow-black/10">
+        <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-card p-5">
             <div className="flex items-start gap-3">
-              <LoaderCircle className="mt-0.5 size-5 animate-spin text-primary" />
+              <LoaderCircle className="mt-0.5 size-4 animate-spin text-primary" />
               <div>
-                <p className="text-sm font-semibold text-foreground">Generating with Hugging Face</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm font-medium text-foreground">Generating...</p>
+                <p className="text-xs text-muted-foreground">
                   {generationStatus ?? "Working on your request..."}
                 </p>
               </div>
             </div>
             {generationLogs.length > 0 ? (
-              <div className="rounded-lg border border-border/70 bg-white/70 p-3">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="rounded-lg bg-muted p-3">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                   Activity
                 </p>
-                <ul className="space-y-1 text-xs text-muted-foreground">
+                <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
                   {generationLogs.map((entry, index) => (
                     <li key={`${entry}-${index}`}>{entry}</li>
                   ))}
@@ -50,19 +50,19 @@ export function PreviewFrame({
       ) : null}
 
       {!generationLoading && loading ? (
-        <div className="absolute inset-0 z-10 grid place-items-center bg-white/70 text-sm text-muted-foreground">
+        <div className="absolute inset-0 z-10 grid place-items-center bg-background text-sm text-muted-foreground">
           Loading artifact...
         </div>
       ) : null}
 
       {!generationLoading && !loading && errorMessage ? (
-        <div className="absolute inset-0 z-10 grid place-items-center bg-white px-6 text-center text-sm text-destructive">
+        <div className="absolute inset-0 z-10 grid place-items-center bg-background px-6 text-center text-sm text-destructive">
           {errorMessage}
         </div>
       ) : null}
 
       {!generationLoading && !loading && !errorMessage && !html ? (
-        <div className="absolute inset-0 z-10 grid place-items-center bg-white px-6 text-center text-sm text-muted-foreground">
+        <div className="absolute inset-0 z-10 grid place-items-center bg-background px-6 text-center text-sm text-muted-foreground">
           Artifact not available yet for this model.
         </div>
       ) : null}

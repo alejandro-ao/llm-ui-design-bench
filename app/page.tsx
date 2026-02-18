@@ -3,7 +3,7 @@ import { PROMPT_VERSION, SHARED_PROMPT } from "@/lib/prompt";
 
 export default function Home() {
   return (
-    <main className="h-[100dvh] p-3 sm:p-4">
+    <main className="h-[100dvh]">
       <EvaluatorClient prompt={SHARED_PROMPT} promptVersion={PROMPT_VERSION} />
     </main>
   );

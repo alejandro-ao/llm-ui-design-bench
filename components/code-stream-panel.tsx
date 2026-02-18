@@ -63,9 +63,9 @@ export function CodeStreamPanel({
   const showPlaceholder = displayCode.length === 0;
 
   return (
-    <div className="flex h-full min-h-[62vh] flex-col bg-slate-50 lg:min-h-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-white/90 px-4 py-3">
-        <div className="inline-flex rounded-lg border border-border/70 bg-secondary/30 p-1">
+    <div className="flex h-full min-h-[62vh] flex-col lg:min-h-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-sidebar px-4 py-2">
+        <div className="inline-flex rounded-lg bg-muted p-0.5">
           {FILE_ORDER.map((file) => {
             const isActive = activeFile === file;
             return (
@@ -73,9 +73,9 @@ export function CodeStreamPanel({
                 key={file}
                 type="button"
                 onClick={() => onActiveFileChange(file)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                   isActive
-                    ? "bg-white text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -86,28 +86,30 @@ export function CodeStreamPanel({
         </div>
 
         <div className="flex items-center gap-2">
-          {generationLoading ? <Badge variant="secondary">Streaming</Badge> : null}
-          {generationError ? <Badge variant="destructive">Error</Badge> : null}
+          {generationLoading ? <Badge variant="default">streaming</Badge> : null}
+          {generationError ? <Badge variant="destructive">error</Badge> : null}
           {generationStatus ? (
             <p className="text-xs text-muted-foreground">{generationStatus}</p>
           ) : null}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-slate-950">
-        <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-5 text-slate-100">
-          {showPlaceholder ? getEmptyState(activeFile) : displayCode}
+      <div className="min-h-0 flex-1 overflow-auto bg-[#0d1117] dark:bg-[#0d1117]">
+        <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-6 text-[#c9d1d9]">
+          {showPlaceholder ? (
+            <span className="text-[#484f58]">{getEmptyState(activeFile)}</span>
+          ) : displayCode}
         </pre>
       </div>
 
-      <div className="border-t border-border/70 bg-white/90 px-4 py-3">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="border-t border-border bg-sidebar px-4 py-2.5">
+        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           Activity
         </p>
         {generationLogs.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No events yet.</p>
+          <p className="text-xs text-muted-foreground/50">No events yet.</p>
         ) : (
-          <ul className="space-y-1 text-xs text-muted-foreground">
+          <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
             {generationLogs.map((entry, index) => (
               <li key={`${entry}-${index}`}>{entry}</li>
             ))}
