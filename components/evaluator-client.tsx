@@ -720,8 +720,8 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           <PromptCard prompt={prompt} promptVersion={promptVersion} />
         </aside>
 
-        <section className="flex min-h-[62vh] min-w-0 flex-col bg-background lg:min-h-0">
-          <div className="flex min-h-0 flex-col bg-background">
+        <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+          <div className="flex h-full min-h-0 flex-1 flex-col bg-background">
             <div className="border-b border-border px-4 py-2">
               <div className="inline-flex rounded-lg bg-muted p-0.5">
                 <button
@@ -749,7 +749,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               </div>
             </div>
 
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 overflow-hidden">
               {activeMainTab === "code" ? (
                 <CodeStreamPanel
                   streamedHtml={streamedHtml}

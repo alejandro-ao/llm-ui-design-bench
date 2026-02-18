@@ -26,7 +26,7 @@ export function PreviewFrame({
   const scaledFrameSize = 100 / zoomScale;
 
   return (
-    <div className="relative h-full min-h-[62vh] bg-background lg:min-h-0">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {generationLoading ? (
         <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 px-6 backdrop-blur-sm">
           <div className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-card p-5">
@@ -102,7 +102,7 @@ export function PreviewFrame({
             </button>
             <span className="w-9 text-right font-mono text-[11px]">{previewZoom}%</span>
           </div>
-          <div className="h-full min-h-[62vh] overflow-auto bg-white lg:min-h-0">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white">
             <iframe
               title={title}
               sandbox="allow-scripts"
@@ -111,6 +111,7 @@ export function PreviewFrame({
               style={{
                 width: `${scaledFrameSize}%`,
                 height: `${scaledFrameSize}%`,
+                minHeight: "100%",
                 transform: `scale(${zoomScale})`,
                 transformOrigin: "top left",
               }}
