@@ -4,11 +4,24 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+
+const { generateMock } = vi.hoisted(() => ({
+  generateMock: vi.fn(),
+}));
+
+vi.mock("@/lib/hf-generation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/hf-generation")>();
+  return {
+    ...actual,
+    generateHtmlWithHuggingFace: generateMock,
+  };
+});
 
 import { POST } from "@/app/api/generate/hf/route";
 import { getArtifactByModelId } from "@/lib/artifacts";
+import { HFGenerationError, type HfGenerationAttempt } from "@/lib/hf-generation";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "generate-hf-tests-"));
@@ -45,30 +58,33 @@ async function createProjectRoot(): Promise<string> {
 }
 
 describe("POST /api/generate/hf", () => {
-  it("generates and persists a public artifact", async () => {
+  beforeEach(() => {
+    generateMock.mockReset();
+  });
+
+  it("generates and persists a public artifact with generation metadata", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content:
-                    "```html\n<!doctype html><html><body>generated page</body></html>\n```",
-                },
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-      ),
-    );
+    const attempts: HfGenerationAttempt[] = [
+      {
+        model: "moonshotai/kimi-k2-instruct:novita",
+        provider: "novita",
+        maxTokens: 4096,
+        status: "success",
+        retryable: false,
+        durationMs: 1200,
+      },
+    ];
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>generated page</body></html>",
+      usedModel: "moonshotai/kimi-k2-instruct:novita",
+      usedProvider: "novita",
+      attempts,
+    });
 
     const response = await POST(
       new NextRequest("http://localhost/api/generate/hf", {
@@ -79,11 +95,25 @@ describe("POST /api/generate/hf", () => {
         body: JSON.stringify({
           hfApiKey: "hf_test_key",
           modelId: "moonshotai/kimi-k2-instruct",
+          provider: "novita",
         }),
       }),
     );
 
     expect(response.status).toBe(201);
+
+    const payload = (await response.json()) as {
+      ok: boolean;
+      generation: {
+        usedModel: string;
+        usedProvider: string;
+        attempts: HfGenerationAttempt[];
+      };
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.generation.usedProvider).toBe("novita");
+    expect(payload.generation.attempts).toEqual(attempts);
 
     const record = await getArtifactByModelId("moonshotai/kimi-k2-instruct", {
       projectRoot,
@@ -93,6 +123,7 @@ describe("POST /api/generate/hf", () => {
     expect(record?.html).toContain("generated page");
     expect(record?.entry.label).toBe("kimi-k2-instruct");
     expect(record?.entry.provider).toBe("huggingface");
+    expect(record?.entry.sourceRef).toBe("huggingface:moonshotai/kimi-k2-instruct:novita");
   });
 
   it("validates required hf key", async () => {
@@ -112,5 +143,159 @@ describe("POST /api/generate/hf", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("accepts model-id:provider syntax without provider field", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>inline provider</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5:novita",
+      usedProvider: "novita",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5:novita",
+          provider: "novita",
+          maxTokens: 4096,
+          status: "success",
+          retryable: false,
+          durationMs: 800,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "MiniMaxAI/MiniMax-M2.5:novita",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: "MiniMaxAI/MiniMax-M2.5",
+        provider: "novita",
+      }),
+    );
+
+    const record = await getArtifactByModelId("MiniMaxAI/MiniMax-M2.5", {
+      projectRoot,
+      preferLocal: true,
+    });
+
+    expect(record?.entry.label).toBe("MiniMax-M2.5");
+    expect(record?.entry.sourceRef).toBe("huggingface:MiniMaxAI/MiniMax-M2.5:novita");
+  });
+
+  it("accepts model-only generation and defaults to auto provider", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>auto route</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5",
+          provider: "auto",
+          maxTokens: 4096,
+          status: "success",
+          retryable: false,
+          durationMs: 600,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: "MiniMaxAI/MiniMax-M2.5",
+        provider: undefined,
+      }),
+    );
+
+    const record = await getArtifactByModelId("MiniMaxAI/MiniMax-M2.5", {
+      projectRoot,
+      preferLocal: true,
+    });
+
+    expect(record?.entry.sourceRef).toBe("huggingface:MiniMaxAI/MiniMax-M2.5:auto");
+  });
+
+  it("returns error attempts when generation fails", async () => {
+    const attempts: HfGenerationAttempt[] = [
+      {
+        model: "moonshotai/kimi-k2-instruct:novita",
+        provider: "novita",
+        maxTokens: 4096,
+        status: "error",
+        statusCode: 504,
+        retryable: false,
+        durationMs: 3500,
+        detail: "Hugging Face provider timed out. Try another provider, retry, or use a faster model.",
+      },
+    ];
+
+    generateMock.mockRejectedValue(
+      new HFGenerationError(
+        "Hugging Face provider timed out. Try another provider, retry, or use a faster model.",
+        504,
+        attempts,
+      ),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          provider: "novita",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(504);
+
+    const payload = (await response.json()) as {
+      error: string;
+      attempts: HfGenerationAttempt[];
+    };
+
+    expect(payload.error).toBe(
+      "Hugging Face provider timed out. Try another provider, retry, or use a faster model.",
+    );
+    expect(payload.attempts).toEqual(attempts);
   });
 });

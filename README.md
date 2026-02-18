@@ -8,6 +8,7 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
 - Generate new artifacts by submitting:
   - Hugging Face API key (used only for that request)
   - Hugging Face model ID
+  - Optional Hugging Face provider (or model suffix `:provider`)
 - Call HF Inference Providers and persist generated HTML artifacts.
 - Render artifacts inside a sandboxed iframe.
 
@@ -31,8 +32,8 @@ SUPABASE_BUCKET_ARTIFACTS=artifacts-html
 Optional:
 
 ```bash
-HF_BASE_URL=https://router.huggingface.co/v1/chat/completions
-GENERATION_TIMEOUT_MS=60000
+HF_BASE_URL=https://router.huggingface.co/v1
+GENERATION_TIMEOUT_MS=600000
 ```
 
 ## Run locally
@@ -83,3 +84,16 @@ Generate and publish from Hugging Face provider model.
   "modelId": "moonshotai/Kimi-K2-Instruct-0905"
 }
 ```
+
+You can optionally pass an explicit provider:
+
+```json
+{
+  "hfApiKey": "hf_...",
+  "modelId": "moonshotai/Kimi-K2-Instruct-0905",
+  "provider": "novita"
+}
+```
+
+Or pass the provider directly in the model value:
+`MiniMaxAI/MiniMax-M2.5:novita`.

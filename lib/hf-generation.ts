@@ -1,30 +1,61 @@
+import { OpenAI } from "openai";
+
+export interface HfGenerationAttempt {
+  model: string;
+  provider: string;
+  maxTokens: number;
+  status: "success" | "error";
+  statusCode?: number;
+  retryable: boolean;
+  durationMs: number;
+  detail?: string;
+}
+
+export interface HfGenerationResult {
+  html: string;
+  usedModel: string;
+  usedProvider: string;
+  attempts: HfGenerationAttempt[];
+}
+
 export class HFGenerationError extends Error {
   status: number;
+  attempts: HfGenerationAttempt[];
 
-  constructor(message: string, status = 500) {
+  constructor(message: string, status = 500, attempts: HfGenerationAttempt[] = []) {
     super(message);
     this.name = "HFGenerationError";
     this.status = status;
+    this.attempts = attempts;
   }
 }
 
 interface GenerateWithHfInput {
   hfApiKey: string;
   modelId: string;
+  provider?: string;
   prompt: string;
   baselineHtml: string;
 }
 
-interface HfChatResponse {
-  choices?: Array<{
-    message?: {
-      content?: unknown;
-    };
-  }>;
+interface AttemptPlan {
+  model: string;
+  provider: string;
+  maxTokens: number;
 }
 
+const DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1";
+const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 const SYSTEM_PROMPT =
   "You are an expert frontend engineer. Return only one complete HTML document with embedded CSS and JS. No markdown fences, no explanations.";
+
+type JsonLike =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonLike[]
+  | { [key: string]: JsonLike };
 
 function coerceMessageContent(value: unknown): string {
   if (typeof value === "string") {
@@ -51,6 +82,247 @@ function coerceMessageContent(value: unknown): string {
   }
 
   return "";
+}
+
+function isLikelyHtml(value: string): boolean {
+  return /<!doctype html|<html[\s>]/i.test(value);
+}
+
+function normalizePlainText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function findMessageInJson(value: JsonLike): string | null {
+  if (typeof value === "string") {
+    const trimmed = normalizePlainText(value);
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = findMessageInJson(item);
+      if (message) {
+        return message;
+      }
+    }
+
+    return null;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const candidateKeys = ["error", "message", "detail", "reason"];
+    for (const key of candidateKeys) {
+      const nested = findMessageInJson((value as Record<string, JsonLike>)[key]);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    for (const nestedValue of Object.values(value)) {
+      const nested = findMessageInJson(nestedValue);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractErrorDetail(rawValue: unknown): string | null {
+  if (typeof rawValue === "string") {
+    if (isLikelyHtml(rawValue)) {
+      return null;
+    }
+
+    const normalized = normalizePlainText(rawValue);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  if (typeof rawValue === "object" && rawValue !== null) {
+    return findMessageInJson(rawValue as JsonLike);
+  }
+
+  return null;
+}
+
+function buildProviderErrorMessage(status: number, detail: string | null): string {
+  const shortDetail = detail ? detail.slice(0, 220) : null;
+
+  if (status === 401 || status === 403) {
+    return "Invalid Hugging Face API key.";
+  }
+
+  if (status === 404) {
+    return "Model ID or provider not found on Hugging Face inference providers.";
+  }
+
+  if (status === 408 || status === 504) {
+    return "Hugging Face provider timed out. Try another provider, retry, or use a faster model.";
+  }
+
+  if (status === 429) {
+    return "Hugging Face rate limit reached. Retry in a moment.";
+  }
+
+  if (status >= 500) {
+    return "Hugging Face provider is temporarily unavailable. Retry shortly.";
+  }
+
+  if (shortDetail) {
+    return `Hugging Face request failed (${status}): ${shortDetail}`;
+  }
+
+  return `Hugging Face request failed (${status}).`;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function getRetryDelayMs(attemptIndex: number): number {
+  const baseDelay = attemptIndex === 0 ? 1200 : 2400;
+  const jitter = Math.floor(Math.random() * 401);
+  return baseDelay + jitter;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveHfBaseUrl(rawBaseUrl: string | undefined): string {
+  const input = rawBaseUrl?.trim();
+  if (!input) {
+    return DEFAULT_HF_BASE_URL;
+  }
+
+  try {
+    const url = new URL(input);
+    let pathname = url.pathname.replace(/\/+$/, "");
+
+    if (pathname.endsWith(CHAT_COMPLETIONS_SUFFIX)) {
+      pathname = pathname.slice(0, -CHAT_COMPLETIONS_SUFFIX.length);
+    }
+
+    if (!pathname || pathname === "/") {
+      pathname = "/v1";
+    } else if (pathname === "/v1") {
+      // Keep as-is.
+    } else if (pathname.startsWith("/v1/")) {
+      pathname = "/v1";
+    }
+
+    return `${url.origin}${pathname}`;
+  } catch {
+    const trimmed = input.replace(/\/+$/, "");
+    if (trimmed.endsWith(CHAT_COMPLETIONS_SUFFIX)) {
+      return trimmed.slice(0, -CHAT_COMPLETIONS_SUFFIX.length);
+    }
+
+    if (trimmed.endsWith("/v1")) {
+      return trimmed;
+    }
+
+    return `${trimmed}/v1`;
+  }
+}
+
+function buildAttemptPlan(modelId: string, providerInput: string | undefined): AttemptPlan[] {
+  const provider = providerInput?.trim().toLowerCase();
+
+  if (provider) {
+    return [
+      {
+        model: `${modelId}:${provider}`,
+        provider,
+        maxTokens: 4096,
+      },
+      {
+        model: `${modelId}:${provider}`,
+        provider,
+        maxTokens: 4096,
+      },
+      {
+        model: modelId,
+        provider: "auto",
+        maxTokens: 3072,
+      },
+    ];
+  }
+
+  return [
+    {
+      model: modelId,
+      provider: "auto",
+      maxTokens: 4096,
+    },
+    {
+      model: modelId,
+      provider: "auto",
+      maxTokens: 4096,
+    },
+    {
+      model: modelId,
+      provider: "auto",
+      maxTokens: 3072,
+    },
+  ];
+}
+
+function parseOpenAiError(error: unknown): {
+  status: number;
+  detail: string | null;
+  retryable: boolean;
+} {
+  const maybeError = error as {
+    status?: unknown;
+    message?: unknown;
+    error?: unknown;
+    code?: unknown;
+    cause?: unknown;
+    name?: unknown;
+  };
+
+  const status =
+    typeof maybeError.status === "number" && Number.isFinite(maybeError.status)
+      ? maybeError.status
+      : null;
+  const detail =
+    extractErrorDetail(maybeError.error) ??
+    extractErrorDetail(maybeError.message) ??
+    extractErrorDetail(maybeError.cause);
+
+  if (status !== null) {
+    return {
+      status,
+      detail,
+      retryable: isRetryableStatus(status),
+    };
+  }
+
+  const errorCode = typeof maybeError.code === "string" ? maybeError.code.toUpperCase() : null;
+  const errorName = typeof maybeError.name === "string" ? maybeError.name : "";
+
+  if (
+    errorName === "AbortError" ||
+    errorName === "APIConnectionTimeoutError" ||
+    errorCode === "ETIMEDOUT" ||
+    errorCode === "ECONNRESET" ||
+    errorCode === "ENOTFOUND" ||
+    errorCode === "EAI_AGAIN"
+  ) {
+    return {
+      status: 504,
+      detail,
+      retryable: true,
+    };
+  }
+
+  return {
+    status: 502,
+    detail,
+    retryable: true,
+  };
 }
 
 export function extractHtmlDocument(rawContent: string): string {
@@ -101,26 +373,29 @@ function buildUserPrompt(prompt: string, baselineHtml: string): string {
 export async function generateHtmlWithHuggingFace({
   hfApiKey,
   modelId,
+  provider,
   prompt,
   baselineHtml,
-}: GenerateWithHfInput): Promise<string> {
-  const timeoutMs = Number.parseInt(process.env.GENERATION_TIMEOUT_MS ?? "60000", 10);
-  const baseUrl = process.env.HF_BASE_URL ?? "https://router.huggingface.co/v1/chat/completions";
+}: GenerateWithHfInput): Promise<HfGenerationResult> {
+  const timeoutMs = Number.parseInt(process.env.GENERATION_TIMEOUT_MS ?? "600000", 10);
+  const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
+  const attemptPlan = buildAttemptPlan(modelId, provider);
+  const attempts: HfGenerationAttempt[] = [];
+  const client = new OpenAI({
+    apiKey: hfApiKey,
+    baseURL: baseUrl,
+    maxRetries: 0,
+    timeout: timeoutMs,
+  });
 
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  for (const [attemptIndex, plan] of attemptPlan.entries()) {
+    const startedAt = Date.now();
 
-  try {
-    const response = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${hfApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: modelId,
+    try {
+      const payload = await client.chat.completions.create({
+        model: plan.model,
         temperature: 0.2,
-        max_tokens: 8192,
+        max_tokens: plan.maxTokens,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -128,41 +403,68 @@ export async function generateHtmlWithHuggingFace({
             content: buildUserPrompt(prompt, baselineHtml),
           },
         ],
-      }),
-      signal: controller.signal,
-    });
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 401 || response.status === 403) {
-        throw new HFGenerationError("Invalid Hugging Face API key.", response.status);
+      const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
+      const html = extractHtmlDocument(content);
+
+      attempts.push({
+        model: plan.model,
+        provider: plan.provider,
+        maxTokens: plan.maxTokens,
+        status: "success",
+        retryable: false,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return {
+        html,
+        usedModel: plan.model,
+        usedProvider: plan.provider,
+        attempts,
+      };
+    } catch (error) {
+      if (error instanceof HFGenerationError && error.status === 422) {
+        attempts.push({
+          model: plan.model,
+          provider: plan.provider,
+          maxTokens: plan.maxTokens,
+          status: "error",
+          statusCode: error.status,
+          retryable: false,
+          durationMs: Date.now() - startedAt,
+          detail: error.message,
+        });
+
+        throw new HFGenerationError(error.message, error.status, attempts);
       }
 
-      if (response.status === 404) {
-        throw new HFGenerationError("Model ID not found on Hugging Face providers.", 404);
+      const parsed = parseOpenAiError(error);
+      const userMessage = buildProviderErrorMessage(parsed.status, parsed.detail);
+      const canRetry = parsed.retryable && attemptIndex < attemptPlan.length - 1;
+
+      attempts.push({
+        model: plan.model,
+        provider: plan.provider,
+        maxTokens: plan.maxTokens,
+        status: "error",
+        statusCode: parsed.status,
+        retryable: canRetry,
+        durationMs: Date.now() - startedAt,
+        detail: userMessage,
+      });
+
+      if (!canRetry) {
+        throw new HFGenerationError(userMessage, parsed.status, attempts);
       }
 
-      throw new HFGenerationError(
-        `Hugging Face generation failed (${response.status}): ${errorText.slice(0, 240)}`,
-        502,
-      );
+      await sleep(getRetryDelayMs(attemptIndex));
     }
-
-    const payload = (await response.json()) as HfChatResponse;
-    const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
-
-    return extractHtmlDocument(content);
-  } catch (error) {
-    if (error instanceof HFGenerationError) {
-      throw error;
-    }
-
-    if ((error as Error).name === "AbortError") {
-      throw new HFGenerationError("Hugging Face generation timed out.", 504);
-    }
-
-    throw new HFGenerationError("Unable to contact Hugging Face providers.", 502);
-  } finally {
-    clearTimeout(timeoutHandle);
   }
+
+  throw new HFGenerationError(
+    "Unable to contact Hugging Face providers.",
+    502,
+    attempts,
+  );
 }

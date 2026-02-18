@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replaceMock = vi.fn();
 let queryString = "model=minimax-m1";
+let lastGenerateBody: {
+  modelId: string;
+  provider?: string;
+} | null = null;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
@@ -63,6 +67,7 @@ const baseEntries = [
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
+    lastGenerateBody = null;
     window.history.replaceState({}, "", `/?${queryString}`);
 
     const currentEntries = [...baseEntries];
@@ -78,9 +83,14 @@ describe("EvaluatorClient", () => {
         const method = init?.method ?? "GET";
 
         if (url === "/api/generate/hf" && method === "POST") {
-          const body = JSON.parse(String(init?.body)) as { modelId: string };
+          const body = JSON.parse(String(init?.body)) as {
+            modelId: string;
+            provider?: string;
+          };
+          lastGenerateBody = body;
 
           const modelId = body.modelId;
+          const provider = body.provider ?? "auto";
           const generatedEntry = {
             modelId,
             label: modelId.split("/").at(-1) ?? modelId,
@@ -90,7 +100,7 @@ describe("EvaluatorClient", () => {
             artifactPath: `data/artifacts/${modelId}/index.html`,
             promptVersion: "v1",
             createdAt: "2026-02-18T00:20:00.000Z",
-            sourceRef: `huggingface:${modelId}`,
+            sourceRef: `huggingface:${modelId}:${provider}`,
           };
 
           const existingIndex = currentEntries.findIndex((entry) => entry.modelId === modelId);
@@ -106,6 +116,20 @@ describe("EvaluatorClient", () => {
             JSON.stringify({
               ok: true,
               entry: generatedEntry,
+              generation: {
+                usedModel: provider === "auto" ? modelId : `${modelId}:${provider}`,
+                usedProvider: provider,
+                attempts: [
+                  {
+                    model: provider === "auto" ? modelId : `${modelId}:${provider}`,
+                    provider,
+                    maxTokens: 4096,
+                    status: "success",
+                    retryable: false,
+                    durationMs: 1000,
+                  },
+                ],
+              },
             }),
             { status: 201 },
           );
@@ -178,8 +202,9 @@ describe("EvaluatorClient", () => {
     await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
     await user.type(
       screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
-      "moonshotai/kimi-k2-instruct",
+      "moonshotai/kimi-k2-instruct:novita",
     );
+    expect(screen.getByPlaceholderText("novita or fastest")).toHaveValue("novita");
     await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
 
     await waitFor(() => {
@@ -190,5 +215,37 @@ describe("EvaluatorClient", () => {
     expect(replaceMock).toHaveBeenCalledWith("/?model=moonshotai%2Fkimi-k2-instruct", {
       scroll: false,
     });
+  });
+
+  it("allows model-only generation without provider", async () => {
+    queryString = "model=minimax-m1";
+    window.history.replaceState({}, "", `/?${queryString}`);
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
+    await user.type(
+      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
+      "moonshotai/kimi-k2-instruct",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
+    });
+
+    expect(lastGenerateBody).toMatchObject({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2-instruct",
+    });
+    expect(lastGenerateBody).not.toHaveProperty("provider");
+    expect(
+      screen.getByText(/Attempt 1\/1: moonshotai\/kimi-k2-instruct \[auto\] ok/),
+    ).toBeInTheDocument();
   });
 });

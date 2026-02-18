@@ -14,16 +14,58 @@ export const dynamic = "force-dynamic";
 interface GeneratePayload {
   hfApiKey?: string;
   modelId?: string;
+  provider?: string;
 }
 
-function jsonError(message: string, status: number) {
-  return NextResponse.json({ error: message }, { status });
+function jsonError(
+  message: string,
+  status: number,
+  extra: Record<string, unknown> = {},
+) {
+  return NextResponse.json(
+    {
+      error: message,
+      ...extra,
+    },
+    { status },
+  );
 }
 
 function deriveModelLabel(modelId: string): string {
   const tokens = modelId.split("/").filter(Boolean);
   const fallback = tokens.at(-1) ?? modelId;
   return fallback.slice(0, 120);
+}
+
+function parseModelAndProvider(
+  modelInput: string,
+  providerInput: string | undefined,
+): { modelId: string; provider?: string } {
+  const trimmedModel = modelInput.trim();
+  const trimmedProvider = providerInput?.trim();
+
+  if (!trimmedModel) {
+    throw new ArtifactError("Model ID is required.", 400);
+  }
+
+  let modelId = trimmedModel;
+  let provider = trimmedProvider;
+
+  const suffixIndex = trimmedModel.lastIndexOf(":");
+  if (suffixIndex > 0 && suffixIndex < trimmedModel.length - 1) {
+    modelId = trimmedModel.slice(0, suffixIndex).trim();
+    provider = trimmedModel.slice(suffixIndex + 1).trim();
+  }
+
+  if (!modelId) {
+    throw new ArtifactError("Model ID is required.", 400);
+  }
+
+  if (provider && !/^[a-z0-9][a-z0-9-]{0,63}$/i.test(provider)) {
+    throw new ArtifactError("Provider format is invalid.", 400);
+  }
+
+  return { modelId, provider: provider?.toLowerCase() };
 }
 
 async function getBaselineHtml(): Promise<string> {
@@ -48,21 +90,24 @@ export async function POST(request: NextRequest) {
     const payload = (await request.json()) as GeneratePayload;
 
     const hfApiKey = payload.hfApiKey?.trim();
-    const modelId = payload.modelId?.trim();
+    const modelInput = payload.modelId?.trim();
 
     if (!hfApiKey) {
       return jsonError("Hugging Face API key is required.", 400);
     }
 
-    if (!modelId) {
+    if (!modelInput) {
       return jsonError("Model ID is required.", 400);
     }
 
+    const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
+
     const baselineHtml = await getBaselineHtml();
 
-    const generatedHtml = await generateHtmlWithHuggingFace({
+    const generation = await generateHtmlWithHuggingFace({
       hfApiKey,
       modelId,
+      provider,
       prompt: SHARED_PROMPT,
       baselineHtml,
     });
@@ -70,10 +115,10 @@ export async function POST(request: NextRequest) {
     const entry = await upsertArtifact({
       modelId,
       label: deriveModelLabel(modelId),
-      html: generatedHtml,
+      html: generation.html,
       promptVersion: PROMPT_VERSION,
       sourceType: "model",
-      sourceRef: `huggingface:${modelId}`,
+      sourceRef: `huggingface:${modelId}:${generation.usedProvider}`,
       provider: "huggingface",
       vendor: inferVendorFromModelId(modelId),
     });
@@ -82,12 +127,19 @@ export async function POST(request: NextRequest) {
       {
         ok: true,
         entry,
+        generation: {
+          usedModel: generation.usedModel,
+          usedProvider: generation.usedProvider,
+          attempts: generation.attempts,
+        },
       },
       { status: 201 },
     );
   } catch (error) {
     if (error instanceof HFGenerationError) {
-      return jsonError(error.message, error.status);
+      return jsonError(error.message, error.status, {
+        attempts: error.attempts,
+      });
     }
 
     if (error instanceof ArtifactError) {

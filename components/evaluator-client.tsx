@@ -34,13 +34,32 @@ interface ArtifactDetailResponse {
   html: string;
 }
 
+interface GenerationAttempt {
+  model: string;
+  provider: string;
+  maxTokens: number;
+  status: "success" | "error";
+  statusCode?: number;
+  retryable: boolean;
+  durationMs: number;
+  detail?: string;
+}
+
+interface GenerationMetadata {
+  usedModel: string;
+  usedProvider: string;
+  attempts: GenerationAttempt[];
+}
+
 interface GenerateHfResponse {
   ok: boolean;
   entry: ArtifactSummary;
+  generation?: GenerationMetadata;
 }
 
 interface ApiErrorResponse {
   error?: string;
+  attempts?: GenerationAttempt[];
 }
 
 interface EvaluatorClientProps {
@@ -69,6 +88,33 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
+function parseModelInput(input: string): { modelId: string; providerFromModel: string | null } {
+  const trimmed = input.trim();
+  const suffixIndex = trimmed.lastIndexOf(":");
+
+  if (suffixIndex > 0 && suffixIndex < trimmed.length - 1) {
+    const modelId = trimmed.slice(0, suffixIndex).trim();
+    const provider = trimmed.slice(suffixIndex + 1).trim();
+
+    if (modelId && provider) {
+      return { modelId, providerFromModel: provider.toLowerCase() };
+    }
+  }
+
+  return { modelId: trimmed, providerFromModel: null };
+}
+
+function formatAttemptLogLine(
+  attempt: GenerationAttempt,
+  index: number,
+  total: number,
+): string {
+  const status = attempt.status === "success" ? "ok" : "error";
+  const statusCode = attempt.statusCode ? ` (${attempt.statusCode})` : "";
+  const retrySuffix = attempt.retryable ? " retrying..." : "";
+  return `Attempt ${index + 1}/${total}: ${attempt.model} [${attempt.provider}] ${status}${statusCode}${retrySuffix}`;
+}
+
 export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,7 +128,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
   const [hfApiKey, setHfApiKey] = useState("");
   const [generationModelId, setGenerationModelId] = useState("");
+  const [generationProvider, setGenerationProvider] = useState("");
   const [generationLoading, setGenerationLoading] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<string | null>(null);
+  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationSuccess, setGenerationSuccess] = useState<string | null>(null);
 
@@ -101,6 +150,17 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     },
     [pathname, router],
   );
+
+  const appendGenerationLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+
+    setGenerationLogs((prev) => [...prev.slice(-5), `${timestamp} ${message}`]);
+  }, []);
 
   const loadEntries = useCallback(
     async (preferredModelId?: string) => {
@@ -212,9 +272,13 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       event.preventDefault();
       setGenerationError(null);
       setGenerationSuccess(null);
+      setGenerationLogs([]);
 
-      const modelId = generationModelId.trim();
+      const parsedModel = parseModelInput(generationModelId);
+      const modelId = parsedModel.modelId;
       const apiKey = hfApiKey.trim();
+      const providerInput = parsedModel.providerFromModel ?? generationProvider.trim();
+      const provider = providerInput ? providerInput.toLowerCase() : "";
 
       if (!apiKey) {
         setGenerationError("Add your Hugging Face API key to run generation.");
@@ -227,40 +291,88 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       }
 
       setGenerationLoading(true);
+      setGenerationStatus("Contacting Hugging Face provider...");
+      appendGenerationLog(`Started generation for ${modelId}.`);
+      appendGenerationLog("Sending request to Hugging Face inference providers.");
 
       try {
+        const body: {
+          hfApiKey: string;
+          modelId: string;
+          provider?: string;
+        } = {
+          hfApiKey: apiKey,
+          modelId,
+        };
+        if (provider) {
+          body.provider = provider;
+        }
+
         const response = await fetch("/api/generate/hf", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            hfApiKey: apiKey,
-            modelId,
-          }),
+          body: JSON.stringify(body),
         });
 
         const payload = (await response.json()) as GenerateHfResponse & ApiErrorResponse;
+
+        if (payload.attempts?.length) {
+          payload.attempts.forEach((attempt, index) => {
+            appendGenerationLog(formatAttemptLogLine(attempt, index, payload.attempts?.length ?? 0));
+          });
+        }
 
         if (!response.ok) {
           throw new Error(payload.error ?? "Generation failed.");
         }
 
+        if (payload.generation?.attempts?.length) {
+          payload.generation.attempts.forEach((attempt, index) => {
+            appendGenerationLog(
+              formatAttemptLogLine(attempt, index, payload.generation?.attempts?.length ?? 0),
+            );
+          });
+        }
+
+        appendGenerationLog("Model output received. Saving artifact.");
+        setGenerationStatus("Persisting generated artifact...");
+
         const nextModelId = payload.entry.modelId;
 
+        appendGenerationLog("Artifact saved. Refreshing shared model list.");
+        setGenerationStatus("Refreshing shared model list...");
         await loadEntries(nextModelId);
         setSelectedModelId(nextModelId);
         updateModelQuery(nextModelId);
 
+        appendGenerationLog("Switching preview to newly generated model.");
+        setGenerationStatus("Loading generated preview...");
         setGenerationSuccess(`Saved and published ${payload.entry.label}.`);
         setHfApiKey("");
+        setGenerationProvider(
+          provider ||
+            (payload.generation?.usedProvider && payload.generation.usedProvider !== "auto"
+              ? payload.generation.usedProvider
+              : ""),
+        );
       } catch (error) {
         setGenerationError((error as Error).message);
+        appendGenerationLog(`Generation failed: ${(error as Error).message}`);
       } finally {
         setGenerationLoading(false);
+        setGenerationStatus(null);
       }
     },
-    [generationModelId, hfApiKey, loadEntries, updateModelQuery],
+    [
+      appendGenerationLog,
+      generationModelId,
+      generationProvider,
+      hfApiKey,
+      loadEntries,
+      updateModelQuery,
+    ],
   );
 
   const hasEntries = entries.length > 0;
@@ -307,10 +419,33 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                 </p>
                 <Input
                   value={generationModelId}
-                  onChange={(event) => setGenerationModelId(event.target.value)}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setGenerationModelId(nextValue);
+
+                    const parsed = parseModelInput(nextValue);
+                    if (parsed.providerFromModel) {
+                      setGenerationProvider(parsed.providerFromModel);
+                    }
+                  }}
                   placeholder="moonshotai/Kimi-K2-Instruct-0905"
                   autoComplete="off"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Provider (Optional)
+                </p>
+                <Input
+                  value={generationProvider}
+                  onChange={(event) => setGenerationProvider(event.target.value)}
+                  placeholder="novita or fastest"
+                  autoComplete="off"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill
+                  provider. Leave empty to use HF auto-routing.
+                </p>
               </div>
               <Button className="w-full" type="submit" disabled={generationLoading}>
                 {generationLoading ? "Generating..." : "Generate and Publish"}
@@ -320,6 +455,18 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               ) : null}
               {generationSuccess ? (
                 <p className="text-xs text-primary">{generationSuccess}</p>
+              ) : null}
+              {generationLogs.length > 0 && !generationLoading ? (
+                <div className="space-y-1 rounded-lg border border-border/70 bg-secondary/20 p-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                    Last Run Activity
+                  </p>
+                  <ul className="space-y-1 text-[11px] text-muted-foreground">
+                    {generationLogs.map((entry, index) => (
+                      <li key={`${entry}-${index}`}>{entry}</li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </form>
           </CardContent>
@@ -382,6 +529,9 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
           loading={listLoading || previewLoading}
           errorMessage={errorMessage}
+          generationLoading={generationLoading}
+          generationStatus={generationStatus}
+          generationLogs={generationLogs}
         />
       </section>
     </div>
