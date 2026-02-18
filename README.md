@@ -92,6 +92,25 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Deploy to Hugging Face Spaces (Docker)
+
+This repo now includes:
+- `Dockerfile` (production build + runtime)
+- `.dockerignore`
+
+Container runtime defaults:
+- listens on `0.0.0.0:7860`
+- uses `npm run start -- -H 0.0.0.0 -p 7860`
+
+For a Docker Space, set Space metadata to:
+
+```yaml
+sdk: docker
+app_port: 7860
+```
+
+If you create the Space from this repo, add required secrets/variables in Space Settings (for example `HF_SESSION_COOKIE_SECRET`, OAuth vars, HF/Supabase vars as needed).
+
 ## Quality checks
 
 ```bash
