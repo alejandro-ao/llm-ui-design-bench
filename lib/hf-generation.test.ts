@@ -24,6 +24,7 @@ vi.mock("openai", () => ({
 import {
   extractHtmlDocument,
   generateHtmlWithHuggingFace,
+  generateHtmlWithHuggingFaceStreamed,
   HFGenerationError,
 } from "@/lib/hf-generation";
 
@@ -324,5 +325,151 @@ describe("generateHtmlWithHuggingFace", () => {
     });
 
     expect(completionCreateMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("generateHtmlWithHuggingFaceStreamed", () => {
+  beforeEach(() => {
+    completionCreateMock.mockReset();
+    constructorMock.mockReset();
+    vi.useRealTimers();
+    delete process.env.HF_BASE_URL;
+  });
+
+  it("streams token chunks and reconstructs html", async () => {
+    completionCreateMock.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [
+            {
+              delta: {
+                content: "<!doctype html><html><body>streamed ",
+              },
+            },
+          ],
+        };
+        yield {
+          choices: [
+            {
+              delta: {
+                content: "content</body></html>",
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    const tokens: string[] = [];
+    const attempts: Array<{ resetCode: boolean; model: string }> = [];
+
+    const result = await generateHtmlWithHuggingFaceStreamed({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      provider: "novita",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+      onToken: (token) => {
+        tokens.push(token);
+      },
+      onAttempt: (attempt) => {
+        attempts.push({ resetCode: attempt.resetCode, model: attempt.model });
+      },
+    });
+
+    expect(tokens.join("")).toContain("streamed content");
+    expect(result.html).toContain("streamed content");
+    expect(result.attempts).toHaveLength(1);
+    expect(attempts).toEqual([
+      {
+        resetCode: false,
+        model: "moonshotai/kimi-k2:novita",
+      },
+    ]);
+  });
+
+  it("retries streaming attempts and marks retry resets", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+
+    completionCreateMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Gateway timeout"), {
+          status: 504,
+        }),
+      )
+      .mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            choices: [
+              {
+                delta: {
+                  content: "<!doctype html><html><body>retry success</body></html>",
+                },
+              },
+            ],
+          };
+        },
+      });
+
+    const seenAttempts: boolean[] = [];
+    vi.useFakeTimers();
+    const generationPromise = generateHtmlWithHuggingFaceStreamed({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      provider: "novita",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+      onAttempt: (attempt) => {
+        seenAttempts.push(attempt.resetCode);
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const result = await generationPromise;
+    randomSpy.mockRestore();
+
+    expect(result.html).toContain("retry success");
+    expect(result.attempts).toHaveLength(2);
+    expect(seenAttempts).toEqual([false, true]);
+  });
+
+  it("falls back to non-stream generation when streaming is unsupported", async () => {
+    completionCreateMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Streaming is not supported for this model."), {
+          status: 400,
+        }),
+      )
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: "<!doctype html><html><body>fallback non-stream</body></html>",
+            },
+          },
+        ],
+      });
+
+    const tokens: string[] = [];
+
+    const result = await generateHtmlWithHuggingFaceStreamed({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      provider: "novita",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+      onToken: (token) => {
+        tokens.push(token);
+      },
+    });
+
+    const firstCall = completionCreateMock.mock.calls[0]?.[0] as { stream?: boolean };
+    const secondCall = completionCreateMock.mock.calls[1]?.[0] as { stream?: boolean };
+
+    expect(firstCall.stream).toBe(true);
+    expect(secondCall.stream).toBeUndefined();
+    expect(tokens.at(-1)).toContain("fallback non-stream");
+    expect(result.html).toContain("fallback non-stream");
+    expect(result.attempts[0]?.detail).toContain("falling back");
   });
 });

@@ -13,6 +13,10 @@ let lastGenerateBody: {
 let generateMode: "success" | "nonJson504" = "success";
 let artifact404ModelId: string | null = null;
 
+function encodeSseEvent(event: string, payload: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
   usePathname: () => "/",
@@ -81,7 +85,7 @@ function mockFetch() {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
 
-      if (url === "/api/generate/hf" && method === "POST") {
+      if (url === "/api/generate/hf/stream" && method === "POST") {
         const body = JSON.parse(String(init?.body)) as {
           hfApiKey: string;
           modelId: string;
@@ -122,9 +126,22 @@ function mockFetch() {
 
         currentHtml[modelId] = "<html><body>Generated output</body></html>";
 
-        return new Response(
-          JSON.stringify({
-            ok: true,
+        const streamPayload = [
+          encodeSseEvent("meta", {
+            modelId,
+            provider: body.provider ?? null,
+            plannedAttempts: 1,
+          }),
+          encodeSseEvent("attempt", {
+            attemptNumber: 1,
+            totalAttempts: 1,
+            model: provider === "auto" ? modelId : `${modelId}:${provider}`,
+            provider,
+            resetCode: false,
+          }),
+          encodeSseEvent("token", { text: "<!doctype html><html><body>Generated " }),
+          encodeSseEvent("token", { text: "output</body></html>" }),
+          encodeSseEvent("complete", {
             entry: generatedEntry,
             generation: {
               usedModel: provider === "auto" ? modelId : `${modelId}:${provider}`,
@@ -140,13 +157,23 @@ function mockFetch() {
               ],
             },
           }),
-          {
-            status: 201,
-            headers: {
-              "Content-Type": "application/json",
-            },
+          encodeSseEvent("done", {}),
+        ].join("");
+
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(streamPayload));
+            controller.close();
           },
-        );
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+          },
+        });
       }
 
       if (url.startsWith("/api/artifacts?modelId=")) {
@@ -288,6 +315,9 @@ describe("EvaluatorClient", () => {
     expect(replaceMock).toHaveBeenCalledWith("/?model=moonshotai%2Fkimi-k2-instruct", {
       scroll: false,
     });
+
+    await user.click(screen.getByRole("button", { name: "Code" }));
+    expect(screen.getByText(/Generated output/)).toBeInTheDocument();
   });
 
   it("allows model-only generation without provider", async () => {
@@ -346,6 +376,7 @@ describe("EvaluatorClient", () => {
       ).toBeInTheDocument();
     });
 
+    await user.click(screen.getByRole("button", { name: "App" }));
     expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
   });
 

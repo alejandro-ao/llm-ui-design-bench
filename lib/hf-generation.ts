@@ -17,6 +17,20 @@ export interface HfGenerationResult {
   attempts: HfGenerationAttempt[];
 }
 
+export interface HfStreamAttemptInfo {
+  attemptNumber: number;
+  totalAttempts: number;
+  model: string;
+  provider: string;
+  resetCode: boolean;
+}
+
+export interface HfStreamingCallbacks {
+  onAttempt?: (attempt: HfStreamAttemptInfo) => void | Promise<void>;
+  onToken?: (token: string) => void | Promise<void>;
+  onLog?: (message: string) => void | Promise<void>;
+}
+
 export class HFGenerationError extends Error {
   status: number;
   attempts: HfGenerationAttempt[];
@@ -39,7 +53,9 @@ interface GenerateWithHfInput {
   traceId?: string;
 }
 
-interface AttemptPlan {
+interface GenerateWithHfStreamingInput extends GenerateWithHfInput, HfStreamingCallbacks {}
+
+export interface HfAttemptPlan {
   model: string;
   provider: string;
 }
@@ -220,7 +236,7 @@ function resolveHfBaseUrl(rawBaseUrl: string | undefined): string {
   }
 }
 
-function buildAttemptPlan(modelId: string, providerInput: string | undefined): AttemptPlan[] {
+export function buildHfAttemptPlan(modelId: string, providerInput: string | undefined): HfAttemptPlan[] {
   const provider = providerInput?.trim().toLowerCase();
 
   if (provider) {
@@ -350,6 +366,60 @@ function parseOpenAiError(error: unknown): {
   };
 }
 
+function isStreamingUnsupportedError(status: number, detail: string | null): boolean {
+  if (status !== 400 && status !== 404 && status !== 422) {
+    return false;
+  }
+
+  if (!detail) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("stream") ||
+    normalized.includes("streaming") ||
+    normalized.includes("not supported") ||
+    normalized.includes("unsupported")
+  );
+}
+
+function createOpenAiClient({
+  hfApiKey,
+  timeoutMs,
+  baseUrl,
+  billTo,
+}: {
+  hfApiKey: string;
+  timeoutMs: number;
+  baseUrl: string;
+  billTo?: string;
+}): OpenAI {
+  return new OpenAI({
+    apiKey: hfApiKey,
+    baseURL: baseUrl,
+    maxRetries: 0,
+    timeout: timeoutMs,
+    ...(billTo
+      ? {
+          defaultHeaders: {
+            "X-HF-Bill-To": billTo,
+          },
+        }
+      : {}),
+  });
+}
+
+function buildChatMessages(prompt: string, baselineHtml: string) {
+  return [
+    { role: "system" as const, content: SYSTEM_PROMPT },
+    {
+      role: "user" as const,
+      content: buildUserPrompt(prompt, baselineHtml),
+    },
+  ];
+}
+
 export function extractHtmlDocument(rawContent: string): string {
   const trimmed = rawContent.trim();
   if (!trimmed) {
@@ -408,7 +478,7 @@ export async function generateHtmlWithHuggingFace({
   const timeoutMs = resolveGenerationTimeoutMs(process.env.GENERATION_TIMEOUT_MS);
   const maxTokens = resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS);
   const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
-  const attemptPlan = buildAttemptPlan(modelId, provider);
+  const attemptPlan = buildHfAttemptPlan(modelId, provider);
   const attempts: HfGenerationAttempt[] = [];
   const deadline = Date.now() + timeoutMs;
 
@@ -447,18 +517,11 @@ export async function generateHtmlWithHuggingFace({
       maxTokens,
     });
 
-    const client = new OpenAI({
-      apiKey: hfApiKey,
-      baseURL: baseUrl,
-      maxRetries: 0,
-      timeout: remainingBudgetMs,
-      ...(billTo
-        ? {
-            defaultHeaders: {
-              "X-HF-Bill-To": billTo,
-            },
-          }
-        : {}),
+    const client = createOpenAiClient({
+      hfApiKey,
+      timeoutMs: remainingBudgetMs,
+      baseUrl,
+      billTo,
     });
     const startedAt = Date.now();
 
@@ -467,13 +530,7 @@ export async function generateHtmlWithHuggingFace({
         model: plan.model,
         temperature: 0.2,
         max_tokens: maxTokens,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: buildUserPrompt(prompt, baselineHtml),
-          },
-        ],
+        messages: buildChatMessages(prompt, baselineHtml),
       });
 
       const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
@@ -595,6 +652,179 @@ export async function generateHtmlWithHuggingFace({
     requestId,
     attempts: summarizeAttempts(attempts),
   });
+
+  throw new HFGenerationError(
+    "Unable to contact Hugging Face providers.",
+    502,
+    attempts,
+  );
+}
+
+export async function generateHtmlWithHuggingFaceStreamed({
+  hfApiKey,
+  modelId,
+  provider,
+  billTo,
+  prompt,
+  baselineHtml,
+  traceId,
+  onAttempt,
+  onToken,
+  onLog,
+}: GenerateWithHfStreamingInput): Promise<HfGenerationResult> {
+  const requestId = traceId?.trim() || `hf-stream-${Date.now().toString(36)}`;
+  const timeoutMs = resolveGenerationTimeoutMs(process.env.GENERATION_TIMEOUT_MS);
+  const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
+  const attemptPlan = buildHfAttemptPlan(modelId, provider);
+  const attempts: HfGenerationAttempt[] = [];
+  const deadline = Date.now() + timeoutMs;
+
+  for (const [attemptIndex, plan] of attemptPlan.entries()) {
+    const remainingBudgetMs = deadline - Date.now();
+    if (remainingBudgetMs < MIN_ATTEMPT_BUDGET_MS) {
+      throw new HFGenerationError(
+        "Generation timed out before another provider attempt could start.",
+        504,
+        attempts,
+      );
+    }
+
+    const client = createOpenAiClient({
+      hfApiKey,
+      timeoutMs: remainingBudgetMs,
+      baseUrl,
+      billTo,
+    });
+    const startedAt = Date.now();
+    await onAttempt?.({
+      attemptNumber: attemptIndex + 1,
+      totalAttempts: attemptPlan.length,
+      model: plan.model,
+      provider: plan.provider,
+      resetCode: attemptIndex > 0,
+    });
+    await onLog?.(`Starting attempt ${attemptIndex + 1}/${attemptPlan.length} with ${plan.model}.`);
+
+    let rawContent = "";
+
+    try {
+      const stream = await client.chat.completions.create({
+        model: plan.model,
+        temperature: 0.2,
+        messages: buildChatMessages(prompt, baselineHtml),
+        stream: true,
+      });
+
+      for await (const chunk of stream) {
+        const token = coerceMessageContent(chunk.choices?.[0]?.delta?.content);
+        if (!token) {
+          continue;
+        }
+
+        rawContent += token;
+        await onToken?.(token);
+      }
+
+      const html = extractHtmlDocument(rawContent);
+      attempts.push({
+        model: plan.model,
+        provider: plan.provider,
+        status: "success",
+        retryable: false,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return {
+        html,
+        usedModel: plan.model,
+        usedProvider: plan.provider,
+        attempts,
+      };
+    } catch (error) {
+      if (error instanceof HFGenerationError && error.status === 422) {
+        attempts.push({
+          model: plan.model,
+          provider: plan.provider,
+          status: "error",
+          statusCode: error.status,
+          retryable: false,
+          durationMs: Date.now() - startedAt,
+          detail: error.message,
+        });
+        throw new HFGenerationError(error.message, error.status, attempts);
+      }
+
+      const parsed = parseOpenAiError(error);
+
+      if (isStreamingUnsupportedError(parsed.status, parsed.detail)) {
+        attempts.push({
+          model: plan.model,
+          provider: plan.provider,
+          status: "error",
+          statusCode: parsed.status,
+          retryable: false,
+          durationMs: Date.now() - startedAt,
+          detail: "Provider does not support streaming; falling back to non-stream response.",
+        });
+        await onLog?.("Provider does not support streaming. Falling back to non-stream response.");
+        await onAttempt?.({
+          attemptNumber: 1,
+          totalAttempts: 1,
+          model: plan.model,
+          provider: plan.provider,
+          resetCode: true,
+        });
+
+        try {
+          const fallback = await generateHtmlWithHuggingFace({
+            hfApiKey,
+            modelId,
+            provider,
+            billTo,
+            prompt,
+            baselineHtml,
+            traceId: requestId,
+          });
+
+          await onToken?.(fallback.html);
+
+          return {
+            ...fallback,
+            attempts: [...attempts, ...fallback.attempts],
+          };
+        } catch (fallbackError) {
+          if (fallbackError instanceof HFGenerationError) {
+            throw new HFGenerationError(
+              fallbackError.message,
+              fallbackError.status,
+              [...attempts, ...fallbackError.attempts],
+            );
+          }
+
+          throw fallbackError;
+        }
+      }
+
+      const userMessage = buildProviderErrorMessage(parsed.status, parsed.detail);
+      const canRetry = parsed.retryable && attemptIndex < attemptPlan.length - 1;
+
+      attempts.push({
+        model: plan.model,
+        provider: plan.provider,
+        status: "error",
+        statusCode: parsed.status,
+        retryable: canRetry,
+        durationMs: Date.now() - startedAt,
+        detail: userMessage,
+      });
+
+      if (!canRetry) {
+        throw new HFGenerationError(userMessage, parsed.status, attempts);
+      }
+
+      await onLog?.(`Attempt ${attemptIndex + 1} failed. Retrying.`);
+    }
+  }
 
   throw new HFGenerationError(
     "Unable to contact Hugging Face providers.",
