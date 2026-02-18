@@ -3,7 +3,6 @@ import { OpenAI } from "openai";
 export interface HfGenerationAttempt {
   model: string;
   provider: string;
-  maxTokens: number;
   status: "success" | "error";
   statusCode?: number;
   retryable: boolean;
@@ -41,7 +40,6 @@ interface GenerateWithHfInput {
 interface AttemptPlan {
   model: string;
   provider: string;
-  maxTokens: number;
 }
 
 const DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1";
@@ -235,17 +233,14 @@ function buildAttemptPlan(modelId: string, providerInput: string | undefined): A
       {
         model: `${modelId}:${provider}`,
         provider,
-        maxTokens: 4096,
       },
       {
         model: `${modelId}:${provider}`,
         provider,
-        maxTokens: 4096,
       },
       {
         model: modelId,
         provider: "auto",
-        maxTokens: 3072,
       },
     ];
   }
@@ -254,17 +249,14 @@ function buildAttemptPlan(modelId: string, providerInput: string | undefined): A
     {
       model: modelId,
       provider: "auto",
-      maxTokens: 4096,
     },
     {
       model: modelId,
       provider: "auto",
-      maxTokens: 4096,
     },
     {
       model: modelId,
       provider: "auto",
-      maxTokens: 3072,
     },
   ];
 }
@@ -395,7 +387,6 @@ export async function generateHtmlWithHuggingFace({
       const payload = await client.chat.completions.create({
         model: plan.model,
         temperature: 0.2,
-        max_tokens: plan.maxTokens,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -411,7 +402,6 @@ export async function generateHtmlWithHuggingFace({
       attempts.push({
         model: plan.model,
         provider: plan.provider,
-        maxTokens: plan.maxTokens,
         status: "success",
         retryable: false,
         durationMs: Date.now() - startedAt,
@@ -428,7 +418,6 @@ export async function generateHtmlWithHuggingFace({
         attempts.push({
           model: plan.model,
           provider: plan.provider,
-          maxTokens: plan.maxTokens,
           status: "error",
           statusCode: error.status,
           retryable: false,
@@ -446,7 +435,6 @@ export async function generateHtmlWithHuggingFace({
       attempts.push({
         model: plan.model,
         provider: plan.provider,
-        maxTokens: plan.maxTokens,
         status: "error",
         statusCode: parsed.status,
         retryable: canRetry,

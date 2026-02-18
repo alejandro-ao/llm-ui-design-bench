@@ -72,7 +72,6 @@ describe("POST /api/generate/hf", () => {
       {
         model: "moonshotai/kimi-k2-instruct:novita",
         provider: "novita",
-        maxTokens: 4096,
         status: "success",
         retryable: false,
         durationMs: 1200,
@@ -159,7 +158,6 @@ describe("POST /api/generate/hf", () => {
         {
           model: "MiniMaxAI/MiniMax-M2.5:novita",
           provider: "novita",
-          maxTokens: 4096,
           status: "success",
           retryable: false,
           durationMs: 800,
@@ -212,7 +210,6 @@ describe("POST /api/generate/hf", () => {
         {
           model: "MiniMaxAI/MiniMax-M2.5",
           provider: "auto",
-          maxTokens: 4096,
           status: "success",
           retryable: false,
           durationMs: 600,
@@ -255,7 +252,6 @@ describe("POST /api/generate/hf", () => {
       {
         model: "moonshotai/kimi-k2-instruct:novita",
         provider: "novita",
-        maxTokens: 4096,
         status: "error",
         statusCode: 504,
         retryable: false,

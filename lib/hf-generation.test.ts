@@ -68,7 +68,10 @@ describe("generateHtmlWithHuggingFace", () => {
       baselineHtml: "<html><body>baseline</body></html>",
     });
 
-    const request = completionCreateMock.mock.calls[0]?.[0] as { model: string; max_tokens: number };
+    const request = completionCreateMock.mock.calls[0]?.[0] as {
+      model: string;
+      max_tokens?: number;
+    };
 
     expect(constructorMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -78,7 +81,7 @@ describe("generateHtmlWithHuggingFace", () => {
       }),
     );
     expect(request.model).toBe("moonshotai/kimi-k2:novita");
-    expect(request.max_tokens).toBe(4096);
+    expect(request).not.toHaveProperty("max_tokens");
     expect(result.html).toContain("generated");
     expect(result.usedProvider).toBe("novita");
     expect(result.attempts).toHaveLength(1);
@@ -121,14 +124,25 @@ describe("generateHtmlWithHuggingFace", () => {
     const result = await generationPromise;
     randomSpy.mockRestore();
 
-    const firstCall = completionCreateMock.mock.calls[0]?.[0] as { model: string; max_tokens: number };
-    const secondCall = completionCreateMock.mock.calls[1]?.[0] as { model: string; max_tokens: number };
-    const thirdCall = completionCreateMock.mock.calls[2]?.[0] as { model: string; max_tokens: number };
+    const firstCall = completionCreateMock.mock.calls[0]?.[0] as {
+      model: string;
+      max_tokens?: number;
+    };
+    const secondCall = completionCreateMock.mock.calls[1]?.[0] as {
+      model: string;
+      max_tokens?: number;
+    };
+    const thirdCall = completionCreateMock.mock.calls[2]?.[0] as {
+      model: string;
+      max_tokens?: number;
+    };
 
     expect(firstCall.model).toBe("moonshotai/kimi-k2:novita");
     expect(secondCall.model).toBe("moonshotai/kimi-k2:novita");
     expect(thirdCall.model).toBe("moonshotai/kimi-k2");
-    expect(thirdCall.max_tokens).toBe(3072);
+    expect(firstCall).not.toHaveProperty("max_tokens");
+    expect(secondCall).not.toHaveProperty("max_tokens");
+    expect(thirdCall).not.toHaveProperty("max_tokens");
     expect(result.usedProvider).toBe("auto");
     expect(result.attempts).toHaveLength(3);
     expect(result.attempts[0]?.retryable).toBe(true);

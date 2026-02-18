@@ -123,7 +123,6 @@ describe("EvaluatorClient", () => {
                   {
                     model: provider === "auto" ? modelId : `${modelId}:${provider}`,
                     provider,
-                    maxTokens: 4096,
                     status: "success",
                     retryable: false,
                     durationMs: 1000,

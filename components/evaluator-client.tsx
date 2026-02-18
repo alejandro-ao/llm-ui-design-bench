@@ -37,7 +37,6 @@ interface ArtifactDetailResponse {
 interface GenerationAttempt {
   model: string;
   provider: string;
-  maxTokens: number;
   status: "success" | "error";
   statusCode?: number;
   retryable: boolean;
