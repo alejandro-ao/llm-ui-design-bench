@@ -15,6 +15,7 @@ interface GeneratePayload {
   hfApiKey?: string;
   modelId?: string;
   provider?: string;
+  billTo?: string;
 }
 
 function jsonError(
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
 
     const hfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
+    const billTo = payload.billTo?.trim();
 
     if (!hfApiKey) {
       return jsonError("Hugging Face API key is required.", 400);
@@ -98,6 +100,10 @@ export async function POST(request: NextRequest) {
 
     if (!modelInput) {
       return jsonError("Model ID is required.", 400);
+    }
+
+    if (billTo && !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(billTo)) {
+      return jsonError("Bill To format is invalid.", 400);
     }
 
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
@@ -108,6 +114,7 @@ export async function POST(request: NextRequest) {
       hfApiKey,
       modelId,
       provider,
+      billTo: billTo || undefined,
       prompt: SHARED_PROMPT,
       baselineHtml,
     });

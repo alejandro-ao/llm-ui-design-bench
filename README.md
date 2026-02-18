@@ -9,6 +9,7 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
   - Hugging Face API key (used only for that request)
   - Hugging Face model ID
   - Optional Hugging Face provider (or model suffix `:provider`)
+  - Optional Hugging Face bill-to account (`X-HF-Bill-To`)
 - Call HF Inference Providers and persist generated HTML artifacts.
 - Render artifacts inside a sandboxed iframe.
 
@@ -92,6 +93,16 @@ You can optionally pass an explicit provider:
   "hfApiKey": "hf_...",
   "modelId": "moonshotai/Kimi-K2-Instruct-0905",
   "provider": "novita"
+}
+```
+
+You can also pass a bill-to account header value:
+
+```json
+{
+  "hfApiKey": "hf_...",
+  "modelId": "moonshotai/Kimi-K2-Instruct-0905",
+  "billTo": "huggingface"
 }
 ```
 

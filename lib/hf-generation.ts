@@ -33,6 +33,7 @@ interface GenerateWithHfInput {
   hfApiKey: string;
   modelId: string;
   provider?: string;
+  billTo?: string;
   prompt: string;
   baselineHtml: string;
 }
@@ -366,6 +367,7 @@ export async function generateHtmlWithHuggingFace({
   hfApiKey,
   modelId,
   provider,
+  billTo,
   prompt,
   baselineHtml,
 }: GenerateWithHfInput): Promise<HfGenerationResult> {
@@ -378,6 +380,13 @@ export async function generateHtmlWithHuggingFace({
     baseURL: baseUrl,
     maxRetries: 0,
     timeout: timeoutMs,
+    ...(billTo
+      ? {
+          defaultHeaders: {
+            "X-HF-Bill-To": billTo,
+          },
+        }
+      : {}),
   });
 
   for (const [attemptIndex, plan] of attemptPlan.entries()) {

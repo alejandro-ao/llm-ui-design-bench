@@ -64,6 +64,7 @@ describe("generateHtmlWithHuggingFace", () => {
       hfApiKey: "hf_test_key",
       modelId: "moonshotai/kimi-k2",
       provider: "novita",
+      billTo: "my-org",
       prompt: "Improve design",
       baselineHtml: "<html><body>baseline</body></html>",
     });
@@ -77,6 +78,9 @@ describe("generateHtmlWithHuggingFace", () => {
       expect.objectContaining({
         apiKey: "hf_test_key",
         baseURL: "https://router.huggingface.co/v1",
+        defaultHeaders: {
+          "X-HF-Bill-To": "my-org",
+        },
         maxRetries: 0,
       }),
     );
@@ -200,6 +204,11 @@ describe("generateHtmlWithHuggingFace", () => {
 
     const request = completionCreateMock.mock.calls[0]?.[0] as { model: string };
 
+    expect(constructorMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        defaultHeaders: expect.anything(),
+      }),
+    );
     expect(request.model).toBe("MiniMaxAI/MiniMax-M2.5");
     expect(result.usedProvider).toBe("auto");
     expect(result.attempts).toHaveLength(1);
