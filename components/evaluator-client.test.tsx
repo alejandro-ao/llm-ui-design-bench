@@ -100,7 +100,7 @@ describe("EvaluatorClient", () => {
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
     });
 
     expect(screen.getByText("minimax")).toBeInTheDocument();
@@ -113,14 +113,14 @@ describe("EvaluatorClient", () => {
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("MiniMax M1 output")).toBeInTheDocument();
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
     });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Baseline (Original)" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Baseline (Original) output")).toBeInTheDocument();
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
 
     expect(replaceMock).toHaveBeenCalledWith("/?model=baseline", { scroll: false });

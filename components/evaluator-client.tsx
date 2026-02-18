@@ -7,12 +7,20 @@ import { ModelSelector, type ModelOption } from "@/components/model-selector";
 import { PreviewFrame } from "@/components/preview-frame";
 import { PromptCard } from "@/components/prompt-card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
 interface ArtifactSummary extends ModelOption {
   artifactPath: string;
   promptVersion: string;
   createdAt: string;
+  sourceRef?: string;
 }
 
 interface ArtifactsListResponse {
@@ -128,9 +136,12 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       setErrorMessage(null);
 
       try {
-        const response = await fetch(`/api/artifacts?modelId=${encodeURIComponent(selectedModelId)}`, {
-          cache: "no-store",
-        });
+        const response = await fetch(
+          `/api/artifacts?modelId=${encodeURIComponent(selectedModelId)}`,
+          {
+            cache: "no-store",
+          },
+        );
 
         if (!response.ok) {
           throw new Error("Unable to load artifact preview.");
@@ -177,39 +188,79 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const hasEntries = entries.length > 0;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-        <div className="space-y-6">
-          <ModelSelector
-            options={entries}
-            value={selectedModelId}
-            onValueChange={handleModelChange}
-            disabled={listLoading || !hasEntries}
-          />
+    <div className="grid h-full min-h-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-xl shadow-black/10 lg:grid-cols-[340px_minmax(0,1fr)]">
+      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border/70 bg-gradient-to-b from-white/90 to-secondary/20 p-4 lg:border-r lg:border-b-0 lg:p-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Frontend Evals
+          </p>
+          <h1 className="mt-2 text-2xl leading-tight font-semibold">
+            Model Comparison Dashboard
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Same prompt. Same baseline. Different model output.
+          </p>
+        </div>
 
-          <div className="rounded-xl border border-border/70 bg-white/60 p-4">
-            <p className="text-sm font-semibold text-foreground">Current Selection</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+        <Card className="gap-4 border-border/70 bg-white/75 py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-base">Model Selection</CardTitle>
+            <CardDescription>Pick the artifact to preview</CardDescription>
+          </CardHeader>
+          <CardContent className="px-4">
+            <ModelSelector
+              options={entries}
+              value={selectedModelId}
+              onValueChange={handleModelChange}
+              disabled={listLoading || !hasEntries}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="gap-4 border-border/70 bg-white/75 py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-base">Model Details</CardTitle>
+            <CardDescription>Metadata for current preview</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 px-4 text-sm">
+            <div className="flex flex-wrap gap-2">
               <Badge variant="outline">{selectedEntry?.provider ?? "none"}</Badge>
               <Badge variant="secondary">{selectedEntry?.vendor ?? "none"}</Badge>
               <Badge variant="outline">{selectedEntry?.sourceType ?? "none"}</Badge>
             </div>
-            <Separator className="my-4" />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Last updated: {selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}
-            </p>
-          </div>
+            <Separator />
+            <div className="space-y-1 text-muted-foreground">
+              <p>
+                <span className="font-semibold text-foreground">Model ID:</span>{" "}
+                {selectedEntry?.modelId ?? "N/A"}
+              </p>
+              <p>
+                <span className="font-semibold text-foreground">Prompt:</span>{" "}
+                {selectedEntry?.promptVersion ?? promptVersion}
+              </p>
+              <p>
+                <span className="font-semibold text-foreground">Updated:</span>{" "}
+                {selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}
+              </p>
+              <p>
+                <span className="font-semibold text-foreground">Source:</span>{" "}
+                {selectedEntry?.sourceRef ?? "N/A"}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-          <PromptCard prompt={prompt} promptVersion={promptVersion} />
-        </div>
+        <PromptCard prompt={prompt} promptVersion={promptVersion} />
+      </aside>
 
+      <section className="min-h-[62vh] bg-white lg:min-h-0">
         <PreviewFrame
           html={html}
           title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
           loading={listLoading || previewLoading}
           errorMessage={errorMessage}
         />
-      </div>
+      </section>
     </div>
   );
 }
