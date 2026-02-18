@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillSync - Team Project Management</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- CSS Variables & Reset --- */
+        :root {
+            --primary: #2563EB;
+            --primary-dark: #1D4ED8;
+            --secondary: #4F46E5;
+            --text-main: #111827;
+            --text-muted: #6B7280;
+            --bg-page: #F9FAFB;
+            --bg-card: #FFFFFF;
+            --bg-section-alt: #EFF6FF;
+            --border-color: #E5E7EB;
+            --radius-lg: 12px;
+            --radius-md: 8px;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --container-width: 1200px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text-main);
+            background-color: var(--bg-page);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        img {
+            max-width: 100%;
+            display: block;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+            transition: color 0.2s;
+        }
+
+        ul {
+            list-style: none;
+        }
+
+        /* --- Layout Utilities --- */
+        .container {
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .section {
+            padding: 80px 0;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 16px;
+            color: var(--text-main);
+        }
+
+        .section-intro {
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto 48px;
+            color: var(--text-muted);
+            font-size: 1.125rem;
+        }
+
+        /* --- Buttons --- */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            font-weight: 600;
+            border-radius: var(--radius-md);
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: white;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background-color: #F3F4F6;
+            border-color: #D1D5DB;
+        }
+
+        .btn-large {
+            padding: 16px 32px;
+            font-size: 1.125rem;
+        }
+
+        /* --- Header & Nav --- */
+        .header {
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 80px;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: -0.025em;
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+        }
+
+        .nav-links a {
+            font-weight: 500;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-cta {
+            display: none; /* Hidden on mobile by default */
+        }
+
+        /* --- Hero Section --- */
+        .hero {
+            background-color: var(--bg-card);
+            padding: 100px 0 120px;
+            text-align: center;
+            background-image: radial-gradient(circle at top center, #EFF6FF 0%, #FFFFFF 40%);
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            margin-bottom: 24px;
+            color: var(--text-main);
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        /* --- Announcement --- */
+        .announcement {
+            background-color: #FEF3C7;
+            color: #92400E;
+            padding: 24px 0;
+            text-align: center;
+            font-weight: 500;
+        }
+        
+        .announcement p {
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* --- Features --- */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            padding: 32px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-md);
+            transform: translateY(-4px);
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 12px;
+            color: var(--text-main);
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* --- About --- */
+        .about-layout {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 48px;
+            align-items: start;
+        }
+
+        .about-main p {
+            font-size: 1.125rem;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            line-height: 1.7;
+        }
+
+        .about-side {
+            background: var(--bg-card);
+            padding: 32px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .about-side h3 {
+            margin-bottom: 24px;
+            font-size: 1.5rem;
+        }
+
+        .about-side ul li {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .about-side ul li:last-child {
+            border-bottom: none;
+        }
+
+        .about-side ul li strong {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        /* --- Pricing --- */
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+            align-items: center;
+        }
+
+        .plan {
+            background: var(--bg-card);
+            padding: 40px 32px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            text-align: center;
+            position: relative;
+        }
+
+        .plan-popular {
+            border: 2px solid var(--primary);
+            box-shadow: var(--shadow-lg);
+            transform: scale(1.05);
+            z-index: 10;
+        }
+
+        .plan h3 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+
+        .plan-price {
+            font-size: 3rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 24px;
+            line-height: 1;
+        }
+
+        .plan-price span {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .plan ul {
+            text-align: left;
+            margin-bottom: 32px;
+        }
+
+        .plan ul li {
+            margin-bottom: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .plan ul li::before {
+            content: "✓";
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        /* --- Testimonials --- */
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .testimonial {
+            background: var(--bg-card);
+            padding: 32px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            font-style: normal;
+        }
+
+        .testimonial p {
+            font-size: 1.125rem;
+            color: var(--text-main);
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .testimonial cite {
+            font-style: normal;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: block;
+        }
+
+        /* --- FAQ --- */
+        .faq-list {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .faq-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .faq-item h3 {
+            padding: 24px;
+            font-size: 1.125rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .faq-item h3::after {
+            content: "+";
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+
+        .faq-item p {
+            padding: 0 24px 24px;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* --- CTA Section --- */
+        .cta-section {
+            background: var(--primary);
+            color: white;
+            text-align: center;
+            padding: 80px 24px;
+            border-radius: var(--radius-lg);
+            margin-bottom: 80px;
+        }
+
+        .cta-section h2 {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            color: white;
+        }
+
+        .cta-section p {
+            font-size: 1.25rem;
+            margin-bottom: 32px;
+            opacity: 0.9;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-section .btn {
+            background: white;
+            color: var(--primary);
+        }
+        
+        .cta-section .btn:hover {
+            background: #F3F4F6;
+        }
+
+        /* --- Footer --- */
+        footer {
+            background: #111827;
+            color: #D1D5DB;
+            padding: 64px 0 32px;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 40px;
+            margin-bottom: 48px;
+        }
+
+        .footer-col h4 {
+            color: white;
+            margin-bottom: 16px;
+            font-size: 1.125rem;
+        }
+
+        .footer-col ul li {
+            margin-bottom: 8px;
+        }
+
+        .footer-col ul li a {
+            color: #9CA3AF;
+        }
+
+        .footer-col ul li a:hover {
+            color: white;
+        }
+
+        .footer-bottom {
+            border-top: 1px solid #374151;
+            padding-top: 32px;
+            text-align: center;
+            font-size: 0.875rem;
+            color: #9CA3AF;
+        }
+
+        /* --- Responsive --- */
+        @media (max-width: 1024px) {
+            .hero h1 { font-size: 3rem; }
+            .pricing-grid { gap: 16px; }
+            .plan-popular { transform: scale(1); }
+        }
+
+        @media (max-width: 768px) {
+            .section { padding: 60px 0; }
+            
+            .nav-links { display: none; } /* Simplified mobile menu handling */
+            .nav-cta { display: block; }
+
+            .hero { padding: 60px 0; }
+            .hero h1 { font-size: 2.25rem; }
+            .hero-cta { flex-direction: column; width: 100%; }
+            .hero-cta .btn { width: 100%; }
+
+            .about-layout { grid-template-columns: 1fr; }
+            
+            .pricing-grid { grid-template-columns: 1fr; gap: 32px; }
+            .plan { padding: 32px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <nav class="navbar">
+                <a href="#" class="logo">SkillSync</a>
+                <ul class="nav-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#about">About</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                    <li><a href="#testimonials">Testimonials</a></li>
+                    <li><a href="#faq">FAQ</a></li>
+                </ul>
+                <div class="nav-cta">
+                    <a href="#cta" class="btn btn-primary">Try It</a>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <h1>Do Team Projects In A Better Way Maybe</h1>
+            <p>SkillSync is a software where your team can put tasks and docs and updates together so things are less all over the place than before.</p>
+            <div class="hero-cta">
+                <a href="#cta" class="btn btn-primary btn-large">Start Free Trial</a>
+                <a href="#about" class="btn btn-secondary btn-large">Contact Sales</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Announcement -->
+    <section class="announcement">
+        <div class="container">
+            <p>This page has product info and some sections and details if you want to look through all of it before deciding.</p>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="section">
+        <div class="container">
+            <h2 class="section-title">Features</h2>
+            <p class="section-intro">Main stuff included in the product right now.</p>
+            
+            <div class="features-grid">
+                <article class="feature-card">
+                    <h3>Task Boards</h3>
+                    <p>Create tasks, assign owners, set due dates, and move work across stages.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Shared Docs</h3>
+                    <p>Write project notes and operating guides in a central workspace.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Team Chat</h3>
+                    <p>Send direct messages or channel updates with searchable history.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Reports</h3>
+                    <p>Review progress with weekly status summaries and workload charts.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Automations</h3>
+                    <p>Set basic rules for reminders, overdue alerts, and recurring tasks.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Permissions</h3>
+                    <p>Control workspace access for employees, contractors, and guests.</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- About -->
+    <section id="about" class="section" style="background-color: #F3F4F6;">
+        <div class="container">
+            <h2 class="section-title">About SkillSync</h2>
+            <div class="about-layout">
+                <div class="about-main">
+                    <p>SkillSync started as a small internal system and then it slowly became a product we decided to continue working on.</p>
+                    <p>After some time we added docs, updates, and a few integrations so teams can do more of their daily workflow in one tool.</p>
+                    <p>Now different departments use it when they do not want to set up something too complicated.</p>
+                </div>
+                <aside class="about-side">
+                    <h3>Quick Facts</h3>
+                    <ul>
+                        <li><span>Founded</span> <strong>2021</strong></li>
+                        <li><span>Customers</span> <strong>10,000+</strong></li>
+                        <li><span>Countries</span> <strong>38</strong></li>
+                        <li><span>Average rollout</span> <strong>5 days</strong></li>
+                    </ul>
+                </aside>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="section">
+        <div class="container">
+            <h2 class="section-title">Pricing</h2>
+            <p class="section-intro">Prices below are per user and can change.</p>
+            
+            <div class="pricing-grid">
+                <article class="plan">
+                    <h3>Starter</h3>
+                    <p class="plan-price">$12<span>/user</span></p>
+                    <ul>
+                        <li>Up to 15 users</li>
+                        <li>Task boards and docs</li>
+                        <li>Email support</li>
+                    </ul>
+                    <a href="#cta" class="btn btn-secondary" style="width:100%">Choose Starter</a>
+                </article>
+                <article class="plan plan-popular">
+                    <div style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--primary); color:white; padding:4px 12px; border-radius:20px; font-size:0.875rem; font-weight:600;">Most Popular</div>
+                    <h3>Growth</h3>
+                    <p class="plan-price">$29<span>/user</span></p>
+                    <ul>
+                        <li>Unlimited users</li>
+                        <li>Automation rules</li>
+                        <li>Priority support</li>
+                    </ul>
+                    <a href="#cta" class="btn btn-primary" style="width:100%">Choose Growth</a>
+                </article>
+                <article class="plan">
+                    <h3>Enterprise</h3>
+                    <p class="plan-price">$59<span>/user</span></p>
+                    <ul>
+                        <li>Advanced permissions</li>
+                        <li>Security controls</li>
+                        <li>Dedicated manager</li>
+                    </ul>
+                    <a href="#cta" class="btn btn-secondary" style="width:100%">Choose Enterprise</a>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section id="testimonials" class="section" style="background-color: #F3F4F6;">
+        <div class="container">
+            <h2 class="section-title">What Some People Said</h2>
+            <div class="testimonials-grid">
+                <blockquote class="testimonial">
+                    <p>"SkillSync made our weekly planning meetings much shorter and clearer."</p>
+                    <cite>- Jamie T., Product Lead</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"The shared docs and task boards replaced three separate tools for us."</p>
+                    <cite>- Morgan R., Operations Manager</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"Setup was fast and the team started using it on day one."</p>
+                    <cite>- Alex P., Support Director</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"The reporting features gave leadership a much better view of capacity."</p>
+                    <cite>- Dana K., PMO</cite>
+                </blockquote>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="section">
+        <div class="container">
+            <h2 class="section-title">FAQ Stuff</h2>
+            <div class="faq-list">
+                <article class="faq-item">
+                    <h3>Do you offer a free trial?</h3>
+                    <p>Yes. All plans include a 14-day free trial with no credit card required.</p>
+                </article>
+                <article class="faq-item">
+                    <h3>Can we migrate data from another tool?</h3>
+                    <p>Yes. CSV imports are supported for projects, tasks, and team members.</p>
+                </article>
+                <article class="faq-item">
+                    <h3>Does SkillSync include onboarding help?</h3>
+                    <p>Growth and Enterprise plans include guided onboarding sessions.</p>
+                </article>
+                <article class="faq-item">
+                    <h3>Is there an annual contract?</h3>
+                    <p>No contract is required, but annual billing offers a discount.</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="container">
+        <div id="cta" class="cta-section">
+            <h2>Try It If You Want</h2>
+            <p>You can create an account and test it with your team and see if this setup works better for your process.</p>
+            <button class="btn btn-large">Create Account</button>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-col">
+                    <h4>SkillSync</h4>
+                    <p style="color:#9CA3AF">Doing team projects better, maybe.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#pricing">Pricing</a></li>
+                        <li><a href="#">Changelog</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="#about">About</a></li>
+                        <li><a href="#">Careers</a></li>
+                        <li><a href="#">Legal</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Support</h4>
+                    <ul>
+                        <li><a href="#">Help Center</a></li>
+                        <li><a href="#faq">FAQ</a></li>
+                        <li><a href="#">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 SkillSync maybe all rights reserved</p>
+                <p style="margin-top:8px">support@skillsync.example | +1 (555) 013-2201</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Simple FAQ Accordion Interaction
+        document.querySelectorAll('.faq-item h3').forEach(header => {
+            header.addEventListener('click', () => {
+                const item = header.parentElement;
+                const isOpen = item.classList.contains('open');
+                
+                // Close all
+                document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+                
+                // Open clicked if it wasn't open
+                if (!isOpen) {
+                    item.classList.add('open');
+                }
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if(target){
+                    target.scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

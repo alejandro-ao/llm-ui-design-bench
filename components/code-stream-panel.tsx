@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useRef } from "react";
+
 import { Badge } from "@/components/ui/badge";
 
 export type CodeFileName = "index.html" | "styles.css" | "script.js";
@@ -13,6 +15,180 @@ interface CodeStreamPanelProps {
 }
 
 const FILE_ORDER: CodeFileName[] = ["index.html", "styles.css", "script.js"];
+
+type HighlightTokenType =
+  | "plain"
+  | "comment"
+  | "keyword"
+  | "string"
+  | "number"
+  | "property"
+  | "tag";
+
+interface HighlightSegment {
+  text: string;
+  type: HighlightTokenType;
+}
+
+const TOKEN_CLASS: Record<HighlightTokenType, string> = {
+  plain: "text-[#c9d1d9]",
+  comment: "text-[#8b949e]",
+  keyword: "text-[#ff7b72]",
+  string: "text-[#a5d6ff]",
+  number: "text-[#79c0ff]",
+  property: "text-[#d2a8ff]",
+  tag: "text-[#7ee787]",
+};
+
+function tokenizeCode(
+  code: string,
+  pattern: RegExp,
+  classify: (token: string) => HighlightSegment[],
+): HighlightSegment[] {
+  const segments: HighlightSegment[] = [];
+  let lastIndex = 0;
+
+  for (const match of code.matchAll(pattern)) {
+    const matchIndex = match.index ?? 0;
+    const token = match[0] ?? "";
+
+    if (matchIndex > lastIndex) {
+      segments.push({
+        text: code.slice(lastIndex, matchIndex),
+        type: "plain",
+      });
+    }
+
+    segments.push(...classify(token));
+    lastIndex = matchIndex + token.length;
+  }
+
+  if (lastIndex < code.length) {
+    segments.push({
+      text: code.slice(lastIndex),
+      type: "plain",
+    });
+  }
+
+  return segments;
+}
+
+function highlightHtmlTag(tagToken: string): HighlightSegment[] {
+  const segments: HighlightSegment[] = [];
+  let lastIndex = 0;
+
+  for (const match of tagToken.matchAll(/"[^"]*"|'[^']*'/g)) {
+    const matchIndex = match.index ?? 0;
+    const token = match[0] ?? "";
+
+    if (matchIndex > lastIndex) {
+      segments.push({
+        text: tagToken.slice(lastIndex, matchIndex),
+        type: "tag",
+      });
+    }
+
+    segments.push({
+      text: token,
+      type: "string",
+    });
+    lastIndex = matchIndex + token.length;
+  }
+
+  if (lastIndex < tagToken.length) {
+    segments.push({
+      text: tagToken.slice(lastIndex),
+      type: "tag",
+    });
+  }
+
+  return segments;
+}
+
+function highlightHtml(code: string): HighlightSegment[] {
+  return tokenizeCode(
+    code,
+    /<!--[\s\S]*?-->|<\/?[a-zA-Z!][^>]*>/g,
+    (token): HighlightSegment[] => {
+      if (token.startsWith("<!--")) {
+        return [{ text: token, type: "comment" }];
+      }
+
+      return highlightHtmlTag(token);
+    },
+  );
+}
+
+function highlightCss(code: string): HighlightSegment[] {
+  return tokenizeCode(
+    code,
+    /\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|#[\da-fA-F]{3,8}\b|\b(?:@media|@keyframes|@supports|from|to)\b|[a-zA-Z-]+(?=\s*:)|\b\d+(?:\.\d+)?(?:px|rem|em|vh|vw|%|s|ms)?\b/g,
+    (token): HighlightSegment[] => {
+      if (token.startsWith("/*")) {
+        return [{ text: token, type: "comment" }];
+      }
+
+      if (token.startsWith('"') || token.startsWith("'")) {
+        return [{ text: token, type: "string" }];
+      }
+
+      if (token.startsWith("@")) {
+        return [{ text: token, type: "keyword" }];
+      }
+
+      if (/^[a-zA-Z-]+$/.test(token)) {
+        return [{ text: token, type: "property" }];
+      }
+
+      if (/^#/.test(token) || /^\d/.test(token)) {
+        return [{ text: token, type: "number" }];
+      }
+
+      return [{ text: token, type: "plain" }];
+    },
+  );
+}
+
+function highlightJavaScript(code: string): HighlightSegment[] {
+  const jsKeywordPattern =
+    /^(?:const|let|var|function|return|if|else|for|while|switch|case|break|continue|class|new|try|catch|finally|throw|await|async|import|from|export|default|typeof|instanceof)$/;
+
+  return tokenizeCode(
+    code,
+    /\/\/.*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:const|let|var|function|return|if|else|for|while|switch|case|break|continue|class|new|try|catch|finally|throw|await|async|import|from|export|default|typeof|instanceof)\b|\b\d+(?:\.\d+)?\b/g,
+    (token): HighlightSegment[] => {
+      if (token.startsWith("//") || token.startsWith("/*")) {
+        return [{ text: token, type: "comment" }];
+      }
+
+      if (token.startsWith('"') || token.startsWith("'") || token.startsWith("`")) {
+        return [{ text: token, type: "string" }];
+      }
+
+      if (jsKeywordPattern.test(token)) {
+        return [{ text: token, type: "keyword" }];
+      }
+
+      if (/^\d/.test(token)) {
+        return [{ text: token, type: "number" }];
+      }
+
+      return [{ text: token, type: "plain" }];
+    },
+  );
+}
+
+function highlightCode(file: CodeFileName, code: string): HighlightSegment[] {
+  if (file === "styles.css") {
+    return highlightCss(code);
+  }
+
+  if (file === "script.js") {
+    return highlightJavaScript(code);
+  }
+
+  return highlightHtml(code);
+}
 
 function extractStyleCode(html: string): string {
   const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
@@ -59,8 +235,26 @@ export function CodeStreamPanel({
   generationLogs,
   generationError,
 }: CodeStreamPanelProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const displayCode = getDisplayCode(activeFile, streamedHtml).trim();
   const showPlaceholder = displayCode.length === 0;
+  const highlightedCode = useMemo(
+    () => highlightCode(activeFile, displayCode),
+    [activeFile, displayCode],
+  );
+
+  useEffect(() => {
+    if (!generationLoading || showPlaceholder) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTop = container.scrollHeight;
+  }, [displayCode, generationLoading, showPlaceholder]);
 
   return (
     <div className="flex h-full min-h-[62vh] flex-col lg:min-h-0">
@@ -94,11 +288,21 @@ export function CodeStreamPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-[#0d1117] dark:bg-[#0d1117]">
+      <div
+        ref={scrollContainerRef}
+        data-testid="code-stream-scroll"
+        className="min-h-0 flex-1 overflow-auto bg-[#0d1117] dark:bg-[#0d1117]"
+      >
         <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-6 text-[#c9d1d9]">
           {showPlaceholder ? (
             <span className="text-[#484f58]">{getEmptyState(activeFile)}</span>
-          ) : displayCode}
+          ) : (
+            highlightedCode.map((segment, index) => (
+              <span key={`${segment.type}-${index}`} className={TOKEN_CLASS[segment.type]}>
+                {segment.text}
+              </span>
+            ))
+          )}
         </pre>
       </div>
 
