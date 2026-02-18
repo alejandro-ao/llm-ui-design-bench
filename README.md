@@ -6,7 +6,8 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
 
 - Browse public generated artifacts in a shared model selector.
 - Generate new artifacts by submitting:
-  - Hugging Face API key (used only for that request)
+  - Hugging Face API key (manual fallback)
+  - Or Hugging Face OAuth session (stored in encrypted HttpOnly cookie)
   - Hugging Face model ID
   - Optional Hugging Face provider (or model suffix `:provider`)
   - Optional Hugging Face bill-to account (`X-HF-Bill-To`)
@@ -37,6 +38,10 @@ Optional:
 HF_BASE_URL=https://router.huggingface.co/v1
 GENERATION_TIMEOUT_MS=1200000
 GENERATION_MAX_TOKENS=32768
+HF_SESSION_COOKIE_SECRET=
+HF_OAUTH_CLIENT_ID=
+HF_OAUTH_SCOPES=openid profile inference-api
+HF_OAUTH_PROVIDER_URL=https://huggingface.co
 ```
 
 `GENERATION_TIMEOUT_MS` is a total wall-clock budget for one `/api/generate/hf` request.
@@ -46,6 +51,37 @@ If a provider is specified, generation attempts are:
 2) `model` (HF auto-routing fallback)
 
 For serverless runtimes with hard function limits, set a lower timeout that fits your platform.
+
+## Hugging Face OAuth setup
+
+OAuth is supported in both Spaces and non-Space hosting.
+
+### Spaces (`hf_oauth: true`)
+
+1. Enable OAuth in your Space metadata (`README.md` frontmatter):
+   - `hf_oauth: true`
+2. Hugging Face injects:
+   - `OAUTH_CLIENT_ID`
+   - `OAUTH_SCOPES`
+   - `OPENID_PROVIDER_URL`
+3. Set `HF_SESSION_COOKIE_SECRET` on your deployment (32-byte base64/base64url secret).
+4. Callback URL is `/oauth/callback` on your app domain.
+
+### Non-Space hosting
+
+1. Create an OAuth app in Hugging Face connected applications.
+2. Configure callback URL:
+   - `https://<your-domain>/oauth/callback`
+3. Set:
+   - `HF_OAUTH_CLIENT_ID`
+   - `HF_OAUTH_SCOPES` (must include `inference-api`)
+   - `HF_OAUTH_PROVIDER_URL` (usually `https://huggingface.co`)
+   - `HF_SESSION_COOKIE_SECRET`
+
+### Security note
+
+OAuth access tokens are stored in an encrypted HttpOnly cookie, not `localStorage`.
+This reduces exposure to client-side script access and XSS token theft.
 
 ## Run locally
 
@@ -88,6 +124,10 @@ Manual ingestion endpoint.
 
 ### `POST /api/generate/hf`
 Generate and publish from Hugging Face provider model.
+
+Auth options:
+- Send `hfApiKey` in request body, or
+- Omit `hfApiKey` and use a valid Hugging Face OAuth session cookie.
 
 ```json
 {
@@ -140,3 +180,40 @@ Emits events:
 - `complete`
 - `error`
 - `done`
+
+### `GET /api/auth/hf/config`
+Returns public OAuth config for the frontend:
+
+```json
+{
+  "enabled": true,
+  "mode": "space",
+  "clientId": "hf_...",
+  "scopes": ["openid", "profile", "inference-api"],
+  "providerUrl": "https://huggingface.co",
+  "redirectUrl": "http://localhost:3000/oauth/callback"
+}
+```
+
+### `GET /api/auth/hf/session`
+Returns OAuth session status:
+
+```json
+{
+  "connected": true,
+  "expiresAt": 1770000000
+}
+```
+
+### `POST /api/auth/hf/session`
+Stores OAuth access token in encrypted HttpOnly cookie.
+
+```json
+{
+  "accessToken": "hf_oauth_token",
+  "expiresAt": 1770000000
+}
+```
+
+### `DELETE /api/auth/hf/session`
+Clears OAuth session cookie.

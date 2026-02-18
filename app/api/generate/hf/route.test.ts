@@ -22,6 +22,10 @@ vi.mock("@/lib/hf-generation", async (importOriginal) => {
 import { POST } from "@/app/api/generate/hf/route";
 import { getArtifactByModelId } from "@/lib/artifacts";
 import { HFGenerationError, type HfGenerationAttempt } from "@/lib/hf-generation";
+import {
+  buildHfOAuthSessionPayload,
+  sealHfOAuthSession,
+} from "@/lib/hf-oauth-session";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "generate-hf-tests-"));
@@ -60,6 +64,7 @@ async function createProjectRoot(): Promise<string> {
 describe("POST /api/generate/hf", () => {
   beforeEach(() => {
     generateMock.mockReset();
+    process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 11).toString("base64url");
   });
 
   it("generates and persists a public artifact with generation metadata", async () => {
@@ -151,6 +156,135 @@ describe("POST /api/generate/hf", () => {
     );
 
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Provide hfApiKey or connect with Hugging Face OAuth.",
+    });
+  });
+
+  it("uses oauth cookie token when hfApiKey is omitted", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>oauth route</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 700,
+        },
+      ],
+    });
+
+    const cookie = sealHfOAuthSession(
+      buildHfOAuthSessionPayload({
+        accessToken: "hf_oauth_cookie_token",
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+      }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `hf_oauth_session=${cookie}`,
+        },
+        body: JSON.stringify({
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hfApiKey: "hf_oauth_cookie_token",
+      }),
+    );
+  });
+
+  it("uses body key over oauth cookie token when both exist", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>manual key wins</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 650,
+        },
+      ],
+    });
+
+    const cookie = sealHfOAuthSession(
+      buildHfOAuthSessionPayload({
+        accessToken: "hf_oauth_cookie_token",
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+      }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `hf_oauth_session=${cookie}`,
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_manual_key",
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hfApiKey: "hf_manual_key",
+      }),
+    );
+  });
+
+  it("returns 401 when oauth cookie token is expired", async () => {
+    const expiredCookie = sealHfOAuthSession(
+      buildHfOAuthSessionPayload({
+        accessToken: "hf_oauth_cookie_token",
+        expiresAt: Math.floor(Date.now() / 1000) - 1,
+      }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `hf_oauth_session=${expiredCookie}`,
+        },
+        body: JSON.stringify({
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Hugging Face OAuth session is invalid or expired. Reconnect with Hugging Face OAuth.",
+    });
   });
 
   it("validates bill_to format", async () => {

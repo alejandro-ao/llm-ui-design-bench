@@ -22,6 +22,10 @@ vi.mock("@/lib/hf-generation", async (importOriginal) => {
 import { POST } from "@/app/api/generate/hf/stream/route";
 import { getArtifactByModelId } from "@/lib/artifacts";
 import { HFGenerationError, type HfGenerationAttempt } from "@/lib/hf-generation";
+import {
+  buildHfOAuthSessionPayload,
+  sealHfOAuthSession,
+} from "@/lib/hf-oauth-session";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "generate-hf-stream-tests-"));
@@ -70,6 +74,7 @@ function extractSseEvents(raw: string): string[] {
 describe("POST /api/generate/hf/stream", () => {
   beforeEach(() => {
     generateStreamMock.mockReset();
+    process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 13).toString("base64url");
   });
 
   it("streams meta->attempt->token->complete->done and persists artifact", async () => {
@@ -232,5 +237,100 @@ describe("POST /api/generate/hf/stream", () => {
         provider: undefined,
       }),
     );
+  });
+
+  it("uses oauth cookie token when hfApiKey is omitted", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateStreamMock.mockResolvedValue({
+      html: "<!doctype html><html><body>oauth route</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 650,
+        },
+      ],
+    });
+
+    const cookie = sealHfOAuthSession(
+      buildHfOAuthSessionPayload({
+        accessToken: "hf_oauth_cookie_token",
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+      }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `hf_oauth_session=${cookie}`,
+        },
+        body: JSON.stringify({
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(generateStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hfApiKey: "hf_oauth_cookie_token",
+      }),
+    );
+  });
+
+  it("returns 400 when neither hfApiKey nor oauth session are provided", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Provide hfApiKey or connect with Hugging Face OAuth.",
+    });
+  });
+
+  it("returns 401 for expired oauth cookie token", async () => {
+    const cookie = sealHfOAuthSession(
+      buildHfOAuthSessionPayload({
+        accessToken: "hf_oauth_cookie_token",
+        expiresAt: Math.floor(Date.now() / 1000) - 1,
+      }),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `hf_oauth_session=${cookie}`,
+        },
+        body: JSON.stringify({
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Hugging Face OAuth session is invalid or expired. Reconnect with Hugging Face OAuth.",
+    });
   });
 });

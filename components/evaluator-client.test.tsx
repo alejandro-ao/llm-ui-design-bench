@@ -3,15 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replaceMock = vi.fn();
+const oauthLoginUrlMock = vi.fn();
 let queryString = "model=minimax-m1";
 let lastGenerateBody: {
-  hfApiKey: string;
+  hfApiKey?: string;
   modelId: string;
   provider?: string;
   billTo?: string;
 } | null = null;
 let generateMode: "success" | "nonJson504" = "success";
 let artifact404ModelId: string | null = null;
+let oauthEnabled = true;
+let oauthConnected = false;
+let oauthExpiresAt: number | null = null;
 
 function encodeSseEvent(event: string, payload: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -20,6 +24,10 @@ function encodeSseEvent(event: string, payload: unknown): string {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
   usePathname: () => "/",
+}));
+
+vi.mock("@huggingface/hub", () => ({
+  oauthLoginUrl: (...args: unknown[]) => oauthLoginUrlMock(...args),
 }));
 
 vi.mock("@/components/model-selector", () => ({
@@ -85,9 +93,76 @@ function mockFetch() {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
 
+      if (url === "/api/auth/hf/config" && method === "GET") {
+        return new Response(
+          JSON.stringify({
+            enabled: oauthEnabled,
+            mode: "custom",
+            clientId: oauthEnabled ? "hf_client" : null,
+            scopes: ["openid", "profile", "inference-api"],
+            providerUrl: "https://huggingface.co",
+            redirectUrl: "http://localhost/oauth/callback",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      if (url === "/api/auth/hf/session" && method === "GET") {
+        return new Response(
+          JSON.stringify({
+            connected: oauthConnected,
+            expiresAt: oauthConnected ? oauthExpiresAt : null,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      if (url === "/api/auth/hf/session" && method === "DELETE") {
+        oauthConnected = false;
+        oauthExpiresAt = null;
+        return new Response(
+          JSON.stringify({
+            connected: false,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      if (url === "/api/auth/hf/session" && method === "POST") {
+        oauthConnected = true;
+        oauthExpiresAt = Math.floor(Date.now() / 1000) + 600;
+        return new Response(
+          JSON.stringify({
+            connected: true,
+            expiresAt: oauthExpiresAt,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
       if (url === "/api/generate/hf/stream" && method === "POST") {
         const body = JSON.parse(String(init?.body)) as {
-          hfApiKey: string;
+          hfApiKey?: string;
           modelId: string;
           provider?: string;
           billTo?: string;
@@ -233,10 +308,15 @@ function mockFetch() {
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
+    oauthLoginUrlMock.mockReset();
+    oauthLoginUrlMock.mockResolvedValue("https://huggingface.co/oauth/authorize");
     lastGenerateBody = null;
     queryString = "model=minimax-m1";
     generateMode = "success";
     artifact404ModelId = null;
+    oauthEnabled = true;
+    oauthConnected = false;
+    oauthExpiresAt = Math.floor(Date.now() / 1000) + 600;
     window.history.replaceState({}, "", `/?${queryString}`);
 
     currentEntries = [...baseEntries];
@@ -404,6 +484,54 @@ describe("EvaluatorClient", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("hf_...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
+  });
+
+  it("shows oauth connected state and supports disconnecting", async () => {
+    oauthConnected = true;
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
+
+    expect(screen.getByText(/Token expires/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Disconnect Hugging Face" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
+    });
+  });
+
+  it("submits generation without manual api key when oauth session is connected", async () => {
+    oauthConnected = true;
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
+    await user.type(
+      screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
+      "moonshotai/kimi-k2-instruct",
+    );
+    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
+    });
+
+    expect(lastGenerateBody).toMatchObject({
+      modelId: "moonshotai/kimi-k2-instruct",
+    });
+    expect(lastGenerateBody).not.toHaveProperty("hfApiKey");
   });
 
   it("filters the right-side model list using search", async () => {

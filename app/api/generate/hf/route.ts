@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { ArtifactError, getArtifactByModelId, upsertArtifact } from "@/lib/artifacts";
+import { HfCredentialError, resolveHfApiKeyFromRequest } from "@/lib/hf-auth";
 import {
   generateHtmlWithHuggingFace,
   HFGenerationError,
@@ -137,16 +138,9 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as GeneratePayload;
 
-    const hfApiKey = payload.hfApiKey?.trim();
+    const rawHfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
     const billTo = payload.billTo?.trim();
-
-    if (!hfApiKey) {
-      logGenerateRoute("warn", "request_rejected_missing_api_key", {
-        requestId,
-      });
-      return jsonError("Hugging Face API key is required.", 400);
-    }
 
     if (!modelInput) {
       logGenerateRoute("warn", "request_rejected_missing_model_id", {
@@ -160,6 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
+    const hfApiKey = resolveHfApiKeyFromRequest(request, rawHfApiKey);
     logGenerateRoute("info", "request_validated", {
       requestId,
       modelId,
@@ -220,6 +215,16 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof HfCredentialError) {
+      logGenerateRoute("warn", "request_rejected_auth", {
+        requestId,
+        status: error.status,
+        message: error.message,
+        durationMs: Date.now() - requestStartedAt,
+      });
+      return jsonError(error.message, error.status);
+    }
+
     if (error instanceof HFGenerationError) {
       logGenerateRoute("warn", "request_failed_generation", {
         requestId,

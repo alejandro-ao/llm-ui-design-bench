@@ -2,6 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { oauthLoginUrl } from "@huggingface/hub";
 
 import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-panel";
 import { PreviewFrame } from "@/components/preview-frame";
@@ -48,6 +49,20 @@ interface ArtifactDetailResponse {
   html: string;
 }
 
+interface OAuthConfigResponse {
+  enabled: boolean;
+  mode: "space" | "custom";
+  clientId: string | null;
+  scopes: string[];
+  providerUrl: string;
+  redirectUrl: string;
+}
+
+interface OAuthSessionResponse {
+  connected: boolean;
+  expiresAt?: number | null;
+}
+
 interface GenerationAttempt {
   model: string;
   provider: string;
@@ -84,6 +99,17 @@ function formatTimestamp(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatOAuthExpiry(value: number | null): string {
+  if (!value) {
+    return "Session token has no explicit expiry.";
+  }
+
+  return `Token expires ${new Date(value * 1000).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })}`;
 }
 
 function parseModelInput(input: string): { modelId: string; providerFromModel: string | null } {
@@ -191,6 +217,11 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationSuccess, setGenerationSuccess] = useState<string | null>(null);
+  const [oauthConfig, setOauthConfig] = useState<OAuthConfigResponse | null>(null);
+  const [oauthConnected, setOauthConnected] = useState(false);
+  const [oauthExpiresAt, setOauthExpiresAt] = useState<number | null>(null);
+  const [oauthStatusLoading, setOauthStatusLoading] = useState(true);
+  const [oauthActionLoading, setOauthActionLoading] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [streamedHtml, setStreamedHtml] = useState("");
@@ -242,6 +273,39 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     setGenerationLogs((prev) => [...prev.slice(-14), `${timestamp} ${message}`]);
   }, []);
 
+  const loadOAuthState = useCallback(async () => {
+    setOauthStatusLoading(true);
+
+    try {
+      const [configResponse, sessionResponse] = await Promise.all([
+        fetch("/api/auth/hf/config", { cache: "no-store" }),
+        fetch("/api/auth/hf/session", { cache: "no-store" }),
+      ]);
+
+      if (configResponse.ok) {
+        const configPayload = (await configResponse.json()) as OAuthConfigResponse;
+        setOauthConfig(configPayload);
+      } else {
+        setOauthConfig(null);
+      }
+
+      if (sessionResponse.ok) {
+        const sessionPayload = (await sessionResponse.json()) as OAuthSessionResponse;
+        setOauthConnected(Boolean(sessionPayload.connected));
+        setOauthExpiresAt(sessionPayload.connected ? (sessionPayload.expiresAt ?? null) : null);
+      } else {
+        setOauthConnected(false);
+        setOauthExpiresAt(null);
+      }
+    } catch {
+      setOauthConfig(null);
+      setOauthConnected(false);
+      setOauthExpiresAt(null);
+    } finally {
+      setOauthStatusLoading(false);
+    }
+  }, []);
+
   const loadEntries = useCallback(
     async (preferredModelId?: string) => {
       setListLoading(true);
@@ -288,6 +352,38 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   useEffect(() => {
     void loadEntries();
   }, [loadEntries]);
+
+  useEffect(() => {
+    void loadOAuthState();
+  }, [loadOAuthState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const oauthStatus = params.get("oauth");
+    if (!oauthStatus) {
+      return;
+    }
+
+    if (oauthStatus === "connected") {
+      setGenerationSuccess("Connected with Hugging Face OAuth.");
+      setGenerationError(null);
+      void loadOAuthState();
+    } else if (oauthStatus === "disconnected") {
+      setGenerationSuccess("Disconnected from Hugging Face OAuth.");
+      setGenerationError(null);
+      void loadOAuthState();
+    } else {
+      setGenerationError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
+    }
+
+    params.delete("oauth");
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [loadOAuthState, pathname, router]);
 
   useEffect(() => {
     if (!selectedModelId) {
@@ -355,6 +451,57 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     [updateModelQuery],
   );
 
+  const handleOAuthConnect = useCallback(async () => {
+    if (!oauthConfig?.enabled || !oauthConfig.clientId) {
+      setGenerationError("Hugging Face OAuth is not configured on this deployment.");
+      return;
+    }
+
+    setGenerationError(null);
+    setOauthActionLoading(true);
+
+    try {
+      const loginUrl = await oauthLoginUrl({
+        clientId: oauthConfig.clientId,
+        hubUrl: oauthConfig.providerUrl,
+        scopes: oauthConfig.scopes.join(" "),
+        redirectUrl: oauthConfig.redirectUrl,
+      });
+
+      setOauthActionLoading(false);
+      window.location.assign(loginUrl);
+      return;
+    } catch {
+      setGenerationError("Unable to start Hugging Face OAuth. Try again.");
+    }
+
+    setOauthActionLoading(false);
+  }, [oauthConfig]);
+
+  const handleOAuthDisconnect = useCallback(async () => {
+    setOauthActionLoading(true);
+    setGenerationError(null);
+
+    try {
+      const response = await fetch("/api/auth/hf/session", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to disconnect Hugging Face OAuth.");
+      }
+
+      setGenerationSuccess("Disconnected from Hugging Face OAuth.");
+      setOauthConnected(false);
+      setOauthExpiresAt(null);
+      await loadOAuthState();
+    } catch {
+      setGenerationError("Unable to disconnect Hugging Face OAuth.");
+    } finally {
+      setOauthActionLoading(false);
+    }
+  }, [loadOAuthState]);
+
   const handleGenerate = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -372,8 +519,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       const provider = providerInput ? providerInput.toLowerCase() : "";
       const billTo = generationBillTo.trim();
 
-      if (!apiKey) {
-        setGenerationError("Add your Hugging Face API key to run generation.");
+      if (!apiKey && !oauthConnected) {
+        setGenerationError(
+          "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation.",
+        );
         return;
       }
 
@@ -390,14 +539,16 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
       try {
         const body: {
-          hfApiKey: string;
+          hfApiKey?: string;
           modelId: string;
           provider?: string;
           billTo?: string;
         } = {
-          hfApiKey: apiKey,
           modelId,
         };
+        if (apiKey) {
+          body.hfApiKey = apiKey;
+        }
         if (provider) {
           body.provider = provider;
         }
@@ -561,6 +712,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       generationBillTo,
       generationProvider,
       hfApiKey,
+      oauthConnected,
       loadEntries,
       updateModelQuery,
     ],
@@ -814,9 +966,56 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             </CardHeader>
             <CardContent className="px-4">
               <form className="space-y-2.5" onSubmit={handleGenerate}>
+                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-foreground">Hugging Face OAuth</p>
+                    <Badge variant={oauthConnected ? "default" : "outline"}>
+                      {oauthConnected ? "connected" : "not connected"}
+                    </Badge>
+                  </div>
+
+                  {oauthStatusLoading ? (
+                    <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
+                  ) : oauthConfig?.enabled ? (
+                    oauthConnected ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          {formatOAuthExpiry(oauthExpiresAt)}
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          onClick={handleOAuthDisconnect}
+                          disabled={oauthActionLoading || generationLoading}
+                        >
+                          {oauthActionLoading ? "Disconnecting..." : "Disconnect Hugging Face"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={handleOAuthConnect}
+                        disabled={oauthActionLoading || generationLoading}
+                      >
+                        {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
+                      </Button>
+                    )
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      OAuth is not configured on this deployment. Use an API key fallback.
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-muted-foreground">
                     API Key
+                    <span className="ml-1 text-muted-foreground/50">optional when OAuth is connected</span>
                   </label>
                   <Input
                     type="password"

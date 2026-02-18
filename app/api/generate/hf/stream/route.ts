@@ -4,6 +4,7 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 
 import { ArtifactError, getArtifactByModelId, upsertArtifact } from "@/lib/artifacts";
+import { HfCredentialError, resolveHfApiKeyFromRequest } from "@/lib/hf-auth";
 import {
   buildHfAttemptPlan,
   generateHtmlWithHuggingFaceStreamed,
@@ -121,13 +122,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = (await request.json()) as GeneratePayload;
-    const hfApiKey = payload.hfApiKey?.trim();
+    const rawHfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
     const billTo = payload.billTo?.trim();
-
-    if (!hfApiKey) {
-      return jsonError("Hugging Face API key is required.", 400);
-    }
 
     if (!modelInput) {
       return jsonError("Model ID is required.", 400);
@@ -138,6 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
+    const hfApiKey = resolveHfApiKeyFromRequest(request, rawHfApiKey);
     const baselineHtml = await getBaselineHtml();
     const plannedAttempts = buildHfAttemptPlan(modelId, provider);
     const encoder = new TextEncoder();
@@ -245,6 +243,10 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof HfCredentialError) {
+      return jsonError(error.message, error.status);
+    }
+
     if (error instanceof ArtifactError) {
       return jsonError(error.message, error.status);
     }
