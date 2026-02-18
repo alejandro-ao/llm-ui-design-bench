@@ -91,7 +91,7 @@ describe("generateHtmlWithHuggingFace", () => {
     expect(firstClientConfig.timeout).toBeLessThanOrEqual(1_200_000);
     expect(firstClientConfig.timeout).toBeGreaterThan(1_190_000);
     expect(request.model).toBe("moonshotai/kimi-k2:novita");
-    expect(request.max_tokens).toBe(8192);
+    expect(request.max_tokens).toBe(32768);
     expect(result.html).toContain("generated");
     expect(result.usedProvider).toBe("novita");
     expect(result.attempts).toHaveLength(1);
@@ -133,8 +133,8 @@ describe("generateHtmlWithHuggingFace", () => {
 
     expect(firstCall.model).toBe("moonshotai/kimi-k2:novita");
     expect(secondCall.model).toBe("moonshotai/kimi-k2");
-    expect(firstCall.max_tokens).toBe(8192);
-    expect(secondCall.max_tokens).toBe(8192);
+    expect(firstCall.max_tokens).toBe(32768);
+    expect(secondCall.max_tokens).toBe(32768);
     expect(result.usedProvider).toBe("auto");
     expect(result.attempts).toHaveLength(2);
     expect(result.attempts[0]?.retryable).toBe(true);
@@ -197,7 +197,7 @@ describe("generateHtmlWithHuggingFace", () => {
       }),
     );
     expect(request.model).toBe("MiniMaxAI/MiniMax-M2.5");
-    expect((request as { max_tokens?: number }).max_tokens).toBe(8192);
+    expect((request as { max_tokens?: number }).max_tokens).toBe(32768);
     expect(result.usedProvider).toBe("auto");
     expect(result.attempts).toHaveLength(1);
   });

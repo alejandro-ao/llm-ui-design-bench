@@ -272,7 +272,7 @@ describe("EvaluatorClient", () => {
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Baseline (Original)" }));
+    await user.click(screen.getByRole("button", { name: /Baseline \(Original\)/i }));
 
     await waitFor(() => {
       expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
@@ -292,6 +292,7 @@ describe("EvaluatorClient", () => {
     });
 
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
     await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
     await user.type(
       screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
@@ -299,7 +300,7 @@ describe("EvaluatorClient", () => {
     );
     expect(screen.getByPlaceholderText("novita or fastest")).toHaveValue("novita");
     await user.type(screen.getByPlaceholderText("huggingface"), "my-org");
-    await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
+    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
 
     await waitFor(() => {
       expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
@@ -331,12 +332,13 @@ describe("EvaluatorClient", () => {
     });
 
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
     await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
     await user.type(
       screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
       "moonshotai/kimi-k2-instruct",
     );
-    await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
+    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
 
     await waitFor(() => {
       expect(screen.getByTitle("kimi-k2-instruct output")).toBeInTheDocument();
@@ -348,6 +350,7 @@ describe("EvaluatorClient", () => {
     });
     expect(lastGenerateBody).not.toHaveProperty("provider");
     expect(lastGenerateBody).not.toHaveProperty("billTo");
+    await user.click(screen.getByRole("button", { name: "Code" }));
     expect(
       screen.getByText(/Attempt 1\/1: moonshotai\/kimi-k2-instruct \[auto\] ok/),
     ).toBeInTheDocument();
@@ -363,12 +366,13 @@ describe("EvaluatorClient", () => {
     });
 
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
     await user.type(screen.getByPlaceholderText("hf_..."), "hf_test_key");
     await user.type(
       screen.getByPlaceholderText("moonshotai/Kimi-K2-Instruct-0905"),
       "moonshotai/kimi-k2-instruct",
     );
-    await user.click(screen.getByRole("button", { name: "Generate and Publish" }));
+    await user.click(screen.getByRole("button", { name: /Generate.*Publish/i }));
 
     await waitFor(() => {
       expect(
@@ -376,7 +380,7 @@ describe("EvaluatorClient", () => {
       ).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "App" }));
+    await user.click(screen.getByRole("button", { name: /Preview/i }));
     expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
   });
 
@@ -388,5 +392,31 @@ describe("EvaluatorClient", () => {
     await waitFor(() => {
       expect(screen.getByText("Artifact not available for this model yet.")).toBeInTheDocument();
     });
+  });
+
+  it("shows generation form only inside the add-model modal", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    expect(screen.queryByPlaceholderText("hf_...")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add Model" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("hf_...")).toBeInTheDocument();
+  });
+
+  it("filters the right-side model list using search", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("MiniMax M1 output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Search models"), "baseline");
+
+    expect(screen.getByRole("button", { name: /Baseline \(Original\)/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /MiniMax M1/i })).not.toBeInTheDocument();
   });
 });

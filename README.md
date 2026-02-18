@@ -36,7 +36,7 @@ Optional:
 ```bash
 HF_BASE_URL=https://router.huggingface.co/v1
 GENERATION_TIMEOUT_MS=1200000
-GENERATION_MAX_TOKENS=8192
+GENERATION_MAX_TOKENS=32768
 ```
 
 `GENERATION_TIMEOUT_MS` is a total wall-clock budget for one `/api/generate/hf` request.

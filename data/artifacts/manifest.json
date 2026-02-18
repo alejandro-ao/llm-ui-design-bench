@@ -27,10 +27,10 @@
     "artifactPath": "data/artifacts/moonshotai-kimi-k2-5-40ea87c7/index.html",
     "promptVersion": "v1",
     "sourceType": "model",
-    "sourceRef": "huggingface:moonshotai/Kimi-K2.5:novita",
+    "sourceRef": "huggingface:moonshotai/Kimi-K2.5:auto",
     "provider": "huggingface",
     "vendor": "moonshotai",
-    "createdAt": "2026-02-18T16:06:08.374Z"
+    "createdAt": "2026-02-18T21:39:22.501Z"
   },
   {
     "modelId": "minimax-m1",

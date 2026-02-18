@@ -63,7 +63,7 @@ export interface HfAttemptPlan {
 const DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1";
 const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 const DEFAULT_GENERATION_TIMEOUT_MS = 1_200_000;
-const DEFAULT_GENERATION_MAX_TOKENS = 8_192;
+const DEFAULT_GENERATION_MAX_TOKENS = 32_768;
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
 const SYSTEM_PROMPT =
   "You are an expert frontend engineer. Return only one complete HTML document with embedded CSS and JS. No markdown fences, no explanations.";

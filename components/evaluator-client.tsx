@@ -4,7 +4,6 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { usePathname, useRouter } from "next/navigation";
 
 import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-panel";
-import { ModelSelector, type ModelOption } from "@/components/model-selector";
 import { PreviewFrame } from "@/components/preview-frame";
 import { PromptCard } from "@/components/prompt-card";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -28,7 +27,12 @@ import type {
   HfGenerationStreamTokenPayload,
 } from "@/lib/hf-stream-events";
 
-interface ArtifactSummary extends ModelOption {
+interface ArtifactSummary {
+  modelId: string;
+  label: string;
+  provider: string;
+  vendor: string;
+  sourceType: "model" | "agent" | "baseline";
   artifactPath: string;
   promptVersion: string;
   createdAt: string;
@@ -187,6 +191,8 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationSuccess, setGenerationSuccess] = useState<string | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [streamedHtml, setStreamedHtml] = useState("");
   const [activeCodeFile, setActiveCodeFile] = useState<CodeFileName>("index.html");
   const [activeMainTab, setActiveMainTab] = useState<MainPanelTab>("app");
@@ -195,6 +201,24 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     () => entries.find((entry) => entry.modelId === selectedModelId) ?? null,
     [entries, selectedModelId],
   );
+
+  const filteredEntries = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    if (!query) {
+      return entries;
+    }
+
+    return entries.filter((entry) => {
+      const fields = [
+        entry.label,
+        entry.modelId,
+        entry.vendor,
+        entry.provider,
+        entry.sourceRef ?? "",
+      ];
+      return fields.some((value) => value.toLowerCase().includes(query));
+    });
+  }, [entries, modelSearch]);
 
   const updateModelQuery = useCallback(
     (nextModelId: string) => {
@@ -358,6 +382,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         return;
       }
 
+      setIsGenerateModalOpen(false);
       setGenerationLoading(true);
       setGenerationStatus("Opening stream...");
       appendGenerationLog(`Started generation for ${modelId}.`);
@@ -544,220 +569,323 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const hasEntries = entries.length > 0;
 
   return (
-    <div className="grid h-full min-h-0 overflow-hidden bg-background lg:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border bg-sidebar p-4 lg:border-r lg:border-b-0">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="inline-flex items-center gap-1.5">
-              <div className="size-2.5 rounded-full bg-primary" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Frontend Evals
-              </span>
+    <>
+      <div className="grid h-full min-h-0 overflow-hidden bg-background lg:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border bg-sidebar p-4 lg:border-r lg:border-b-0">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="inline-flex items-center gap-1.5">
+                <div className="size-2.5 rounded-full bg-primary" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Frontend Evals
+                </span>
+              </div>
+              <h1 className="mt-1.5 text-lg leading-tight font-semibold">
+                Model Comparison
+              </h1>
             </div>
-            <h1 className="mt-1.5 text-lg leading-tight font-semibold">
-              Model Comparison
-            </h1>
+            <ThemeToggle />
           </div>
-          <ThemeToggle />
-        </div>
 
-        <Card className="gap-3 py-3">
-          <CardHeader className="px-3">
-            <CardTitle className="text-sm">Generate from HF</CardTitle>
-            <CardDescription className="text-xs">
-              Paste your key and any HF provider model ID.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-3">
-            <form className="space-y-2.5" onSubmit={handleGenerate}>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  API Key
-                </label>
-                <Input
-                  type="password"
-                  value={hfApiKey}
-                  onChange={(event) => setHfApiKey(event.target.value)}
-                  placeholder="hf_..."
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Model ID
-                </label>
-                <Input
-                  value={generationModelId}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setGenerationModelId(nextValue);
-
-                    const parsed = parseModelInput(nextValue);
-                    if (parsed.providerFromModel) {
-                      setGenerationProvider(parsed.providerFromModel);
-                    }
+          <Card className="gap-3 py-3">
+            <CardHeader className="px-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Models</CardTitle>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="accent"
+                  onClick={() => {
+                    setGenerationError(null);
+                    setIsGenerateModalOpen(true);
                   }}
-                  placeholder="moonshotai/Kimi-K2-Instruct-0905"
-                  autoComplete="off"
-                />
+                >
+                  Add Model
+                </Button>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Provider
-                  <span className="ml-1 text-muted-foreground/50">optional</span>
-                </label>
-                <Input
-                  value={generationProvider}
-                  onChange={(event) => setGenerationProvider(event.target.value)}
-                  placeholder="novita or fastest"
-                  autoComplete="off"
-                />
-                <p className="text-[11px] leading-tight text-muted-foreground/70">
-                  Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill.
-                </p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Bill To
-                  <span className="ml-1 text-muted-foreground/50">optional</span>
-                </label>
-                <Input
-                  value={generationBillTo}
-                  onChange={(event) => setGenerationBillTo(event.target.value)}
-                  placeholder="huggingface"
-                  autoComplete="off"
-                />
-                <p className="text-[11px] leading-tight text-muted-foreground/70">
-                  Sends <code>X-HF-Bill-To</code> with your request when provided.
-                </p>
-              </div>
-              <Button className="w-full" variant="accent" type="submit" disabled={generationLoading}>
-                {generationLoading ? "Generating..." : "Generate & Publish"}
-              </Button>
-              {generationError ? (
-                <p className="text-xs text-destructive">{generationError}</p>
-              ) : null}
+              <CardDescription className="text-xs">
+                Search and choose an artifact to preview.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 px-3">
+              <Input
+                value={modelSearch}
+                onChange={(event) => setModelSearch(event.target.value)}
+                placeholder="Search models..."
+                aria-label="Search models"
+              />
+
               {generationSuccess ? (
                 <p className="text-xs text-green-600 dark:text-green-400">{generationSuccess}</p>
               ) : null}
-              {generationLogs.length > 0 && !generationLoading ? (
-                <div className="space-y-1 rounded-lg bg-muted p-2.5">
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Last Run
-                  </p>
-                  <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
-                    {generationLogs.map((entry, index) => (
-                      <li key={`${entry}-${index}`}>{entry}</li>
-                    ))}
-                  </ul>
-                </div>
+              {generationError && !isGenerateModalOpen ? (
+                <p className="text-xs text-destructive">{generationError}</p>
               ) : null}
-            </form>
-          </CardContent>
-        </Card>
 
-        <Card className="gap-3 py-3">
-          <CardHeader className="px-3">
-            <CardTitle className="text-sm">Model Selection</CardTitle>
-            <CardDescription className="text-xs">Pick the artifact to preview</CardDescription>
-          </CardHeader>
-          <CardContent className="px-3">
-            <ModelSelector
-              options={entries}
-              value={selectedModelId}
-              onValueChange={handleModelChange}
-              disabled={listLoading || !hasEntries}
-            />
-          </CardContent>
-        </Card>
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {listLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading models...</p>
+                ) : !hasEntries ? (
+                  <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
+                    <p className="text-sm text-muted-foreground">
+                      No models are available yet.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setGenerationError(null);
+                        setIsGenerateModalOpen(true);
+                      }}
+                    >
+                      Add from HF
+                    </Button>
+                  </div>
+                ) : filteredEntries.length === 0 ? (
+                  <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
+                    <p className="text-sm text-muted-foreground">
+                      No model matches that search.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setGenerationError(null);
+                        setIsGenerateModalOpen(true);
+                      }}
+                    >
+                      Add from HF
+                    </Button>
+                  </div>
+                ) : (
+                  filteredEntries.map((entry) => {
+                    const isActive = entry.modelId === selectedModelId;
+                    return (
+                      <button
+                        key={entry.modelId}
+                        type="button"
+                        onClick={() => handleModelChange(entry.modelId)}
+                        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                          isActive
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-background hover:bg-muted/70"
+                        }`}
+                      >
+                        <p className="truncate text-sm font-medium">{entry.label}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {entry.modelId}
+                        </p>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="gap-3 py-3">
-          <CardHeader className="px-3">
-            <CardTitle className="text-sm">Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5 px-3 text-sm">
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline">{selectedEntry?.provider ?? "none"}</Badge>
-              <Badge variant="secondary">{selectedEntry?.vendor ?? "none"}</Badge>
-              <Badge variant="outline">{selectedEntry?.sourceType ?? "none"}</Badge>
+          <Card className="gap-3 py-3">
+            <CardHeader className="px-3">
+              <CardTitle className="text-sm">Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5 px-3 text-sm">
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="outline">{selectedEntry?.provider ?? "none"}</Badge>
+                <Badge variant="secondary">{selectedEntry?.vendor ?? "none"}</Badge>
+                <Badge variant="outline">{selectedEntry?.sourceType ?? "none"}</Badge>
+              </div>
+              <Separator />
+              <dl className="space-y-1 font-mono text-xs text-muted-foreground">
+                <div className="flex gap-2">
+                  <dt className="font-medium text-foreground">model</dt>
+                  <dd className="truncate">{selectedEntry?.modelId ?? "N/A"}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="font-medium text-foreground">prompt</dt>
+                  <dd>{selectedEntry?.promptVersion ?? promptVersion}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="font-medium text-foreground">updated</dt>
+                  <dd>{selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="font-medium text-foreground">source</dt>
+                  <dd className="truncate">{selectedEntry?.sourceRef ?? "N/A"}</dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+
+          <PromptCard prompt={prompt} promptVersion={promptVersion} />
+        </aside>
+
+        <section className="flex min-h-[62vh] min-w-0 flex-col bg-background lg:min-h-0">
+          <div className="flex min-h-0 flex-col bg-background">
+            <div className="border-b border-border px-4 py-2">
+              <div className="inline-flex rounded-lg bg-muted p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("code")}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    activeMainTab === "code"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("app")}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    activeMainTab === "app"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Preview
+                </button>
+              </div>
             </div>
-            <Separator />
-            <dl className="space-y-1 font-mono text-xs text-muted-foreground">
-              <div className="flex gap-2">
-                <dt className="font-medium text-foreground">model</dt>
-                <dd className="truncate">{selectedEntry?.modelId ?? "N/A"}</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="font-medium text-foreground">prompt</dt>
-                <dd>{selectedEntry?.promptVersion ?? promptVersion}</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="font-medium text-foreground">updated</dt>
-                <dd>{selectedEntry ? formatTimestamp(selectedEntry.createdAt) : "N/A"}</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="font-medium text-foreground">source</dt>
-                <dd className="truncate">{selectedEntry?.sourceRef ?? "N/A"}</dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
 
-        <PromptCard prompt={prompt} promptVersion={promptVersion} />
-      </aside>
-
-      <section className="flex min-h-[62vh] flex-col bg-background lg:min-h-0">
-        <div className="border-b border-border px-4 py-2">
-          <div className="inline-flex rounded-lg bg-muted p-0.5">
-            <button
-              type="button"
-              onClick={() => setActiveMainTab("code")}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                activeMainTab === "code"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Code
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab("app")}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                activeMainTab === "app"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Preview
-            </button>
+            <div className="min-h-0 flex-1">
+              {activeMainTab === "code" ? (
+                <CodeStreamPanel
+                  streamedHtml={streamedHtml}
+                  activeFile={activeCodeFile}
+                  onActiveFileChange={setActiveCodeFile}
+                  generationLoading={generationLoading}
+                  generationStatus={generationStatus}
+                  generationLogs={generationLogs}
+                  generationError={generationError}
+                />
+              ) : (
+                <PreviewFrame
+                  html={html}
+                  title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
+                  loading={listLoading || previewLoading}
+                  errorMessage={errorMessage}
+                  generationLoading={generationLoading}
+                  generationStatus={generationStatus}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        </section>
+      </div>
 
-        <div className="min-h-0 flex-1">
-          {activeMainTab === "code" ? (
-            <CodeStreamPanel
-              streamedHtml={streamedHtml}
-              activeFile={activeCodeFile}
-              onActiveFileChange={setActiveCodeFile}
-              generationLoading={generationLoading}
-              generationStatus={generationStatus}
-              generationLogs={generationLogs}
-              generationError={generationError}
-            />
-          ) : (
-            <PreviewFrame
-              html={html}
-              title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
-              loading={listLoading || previewLoading}
-              errorMessage={errorMessage}
-              generationLoading={generationLoading}
-              generationStatus={generationStatus}
-              generationLogs={generationLogs}
-            />
-          )}
+      {isGenerateModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="generate-model-title"
+          onClick={() => {
+            if (!generationLoading) {
+              setIsGenerateModalOpen(false);
+            }
+          }}
+        >
+          <Card
+            className="w-full max-w-xl gap-3 py-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <CardHeader className="px-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle id="generate-model-title" className="text-base">
+                    Generate from HF
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Paste your key and provider model ID to add a new model output.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsGenerateModalOpen(false)}
+                  disabled={generationLoading}
+                >
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4">
+              <form className="space-y-2.5" onSubmit={handleGenerate}>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    API Key
+                  </label>
+                  <Input
+                    type="password"
+                    value={hfApiKey}
+                    onChange={(event) => setHfApiKey(event.target.value)}
+                    placeholder="hf_..."
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Model ID
+                  </label>
+                  <Input
+                    value={generationModelId}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setGenerationModelId(nextValue);
+
+                      const parsed = parseModelInput(nextValue);
+                      if (parsed.providerFromModel) {
+                        setGenerationProvider(parsed.providerFromModel);
+                      }
+                    }}
+                    placeholder="moonshotai/Kimi-K2-Instruct-0905"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Provider
+                    <span className="ml-1 text-muted-foreground/50">optional</span>
+                  </label>
+                  <Input
+                    value={generationProvider}
+                    onChange={(event) => setGenerationProvider(event.target.value)}
+                    placeholder="novita or fastest"
+                    autoComplete="off"
+                  />
+                  <p className="text-[11px] leading-tight text-muted-foreground/70">
+                    Tip: paste model as <code>MiniMaxAI/MiniMax-M2.5:novita</code> to auto-fill.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Bill To
+                    <span className="ml-1 text-muted-foreground/50">optional</span>
+                  </label>
+                  <Input
+                    value={generationBillTo}
+                    onChange={(event) => setGenerationBillTo(event.target.value)}
+                    placeholder="huggingface"
+                    autoComplete="off"
+                  />
+                  <p className="text-[11px] leading-tight text-muted-foreground/70">
+                    Sends <code>X-HF-Bill-To</code> with your request when provided.
+                  </p>
+                </div>
+                <Button className="w-full" variant="accent" type="submit" disabled={generationLoading}>
+                  {generationLoading ? "Generating..." : "Generate & Publish"}
+                </Button>
+                {generationError ? (
+                  <p className="text-xs text-destructive">{generationError}</p>
+                ) : null}
+              </form>
+            </CardContent>
+          </Card>
         </div>
-      </section>
-    </div>
+      ) : null}
+    </>
   );
 }
