@@ -1,3 +1,15 @@
+---
+title: Frontend LLM Evaluator
+emoji: "🧪"
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+sdk_version: "latest"
+app_file: app.py
+app_port: 7860
+pinned: false
+---
+
 # Frontend LLM Evaluator
 
 Next.js + shadcn dashboard to compare how different models redesign the same baseline landing page.
