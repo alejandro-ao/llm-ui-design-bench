@@ -3,6 +3,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-panel";
 import { ModelSelector, type ModelOption } from "@/components/model-selector";
 import { PreviewFrame } from "@/components/preview-frame";
 import { PromptCard } from "@/components/prompt-card";
@@ -17,6 +18,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type {
+  HfGenerationStreamAttemptPayload,
+  HfGenerationStreamCompletePayload,
+  HfGenerationStreamErrorPayload,
+  HfGenerationStreamLogPayload,
+  HfGenerationStreamMetaPayload,
+  HfGenerationStreamTokenPayload,
+} from "@/lib/hf-stream-events";
 
 interface ArtifactSummary extends ModelOption {
   artifactPath: string;
@@ -44,27 +53,12 @@ interface GenerationAttempt {
   detail?: string;
 }
 
-interface GenerationMetadata {
-  usedModel: string;
-  usedProvider: string;
-  attempts: GenerationAttempt[];
-}
-
-interface GenerateHfResponse {
-  ok: boolean;
-  entry: ArtifactSummary;
-  generation?: GenerationMetadata;
-}
-
-interface ApiErrorResponse {
-  error?: string;
-  attempts?: GenerationAttempt[];
-}
-
 interface EvaluatorClientProps {
   prompt: string;
   promptVersion: string;
 }
+
+type MainPanelTab = "code" | "app";
 
 function pickDefaultModelId(entries: ArtifactSummary[]): string {
   const firstModel = entries.find((entry) => entry.sourceType === "model");
@@ -114,6 +108,43 @@ function formatAttemptLogLine(
   return `Attempt ${index + 1}/${total}: ${attempt.model} [${attempt.provider}] ${status}${statusCode}${retrySuffix}`;
 }
 
+function parseSseEventBlock(
+  block: string,
+): { event: string; payload: unknown } | null {
+  const normalizedBlock = block.replace(/\r/g, "");
+  const lines = normalizedBlock.split("\n");
+
+  let eventName = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      eventName = line.slice("event:".length).trim();
+      continue;
+    }
+
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  const rawPayload = dataLines.join("\n");
+
+  try {
+    const payload = JSON.parse(rawPayload) as unknown;
+    return {
+      event: eventName,
+      payload,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -133,6 +164,9 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationSuccess, setGenerationSuccess] = useState<string | null>(null);
+  const [streamedHtml, setStreamedHtml] = useState("");
+  const [activeCodeFile, setActiveCodeFile] = useState<CodeFileName>("index.html");
+  const [activeMainTab, setActiveMainTab] = useState<MainPanelTab>("app");
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.modelId === selectedModelId) ?? null,
@@ -158,7 +192,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       hour12: false,
     });
 
-    setGenerationLogs((prev) => [...prev.slice(-5), `${timestamp} ${message}`]);
+    setGenerationLogs((prev) => [...prev.slice(-14), `${timestamp} ${message}`]);
   }, []);
 
   const loadEntries = useCallback(
@@ -272,6 +306,9 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       setGenerationError(null);
       setGenerationSuccess(null);
       setGenerationLogs([]);
+      setStreamedHtml("");
+      setActiveCodeFile("index.html");
+      setActiveMainTab("code");
 
       const parsedModel = parseModelInput(generationModelId);
       const modelId = parsedModel.modelId;
@@ -290,9 +327,9 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       }
 
       setGenerationLoading(true);
-      setGenerationStatus("Contacting Hugging Face provider...");
+      setGenerationStatus("Opening stream...");
       appendGenerationLog(`Started generation for ${modelId}.`);
-      appendGenerationLog("Sending request to Hugging Face inference providers.");
+      appendGenerationLog("Opening streaming connection to Hugging Face inference providers.");
 
       try {
         const body: {
@@ -307,7 +344,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           body.provider = provider;
         }
 
-        const response = await fetch("/api/generate/hf", {
+        const response = await fetch("/api/generate/hf/stream", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -315,47 +352,129 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           body: JSON.stringify(body),
         });
 
-        const payload = (await response.json()) as GenerateHfResponse & ApiErrorResponse;
-
-        if (payload.attempts?.length) {
-          payload.attempts.forEach((attempt, index) => {
-            appendGenerationLog(formatAttemptLogLine(attempt, index, payload.attempts?.length ?? 0));
-          });
-        }
-
         if (!response.ok) {
+          const payload = (await response.json()) as { error?: string };
           throw new Error(payload.error ?? "Generation failed.");
         }
 
-        if (payload.generation?.attempts?.length) {
-          payload.generation.attempts.forEach((attempt, index) => {
-            appendGenerationLog(
-              formatAttemptLogLine(attempt, index, payload.generation?.attempts?.length ?? 0),
-            );
-          });
+        if (!response.body) {
+          throw new Error("Streaming response body is not available.");
         }
 
-        appendGenerationLog("Model output received. Saving artifact.");
-        setGenerationStatus("Persisting generated artifact...");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let done = false;
+        let buffer = "";
+        let completed = false;
 
-        const nextModelId = payload.entry.modelId;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          buffer += decoder.decode(result.value ?? new Uint8Array(), {
+            stream: !done,
+          });
 
-        appendGenerationLog("Artifact saved. Refreshing shared model list.");
-        setGenerationStatus("Refreshing shared model list...");
-        await loadEntries(nextModelId);
-        setSelectedModelId(nextModelId);
-        updateModelQuery(nextModelId);
+          let separatorIndex = buffer.indexOf("\n\n");
+          while (separatorIndex >= 0) {
+            const block = buffer.slice(0, separatorIndex);
+            buffer = buffer.slice(separatorIndex + 2);
+            separatorIndex = buffer.indexOf("\n\n");
 
-        appendGenerationLog("Switching preview to newly generated model.");
-        setGenerationStatus("Loading generated preview...");
-        setGenerationSuccess(`Saved and published ${payload.entry.label}.`);
-        setHfApiKey("");
-        setGenerationProvider(
-          provider ||
-            (payload.generation?.usedProvider && payload.generation.usedProvider !== "auto"
-              ? payload.generation.usedProvider
-              : ""),
-        );
+            const parsedBlock = parseSseEventBlock(block);
+            if (!parsedBlock) {
+              continue;
+            }
+
+            if (parsedBlock.event === "meta") {
+              const metaPayload = parsedBlock.payload as HfGenerationStreamMetaPayload;
+              appendGenerationLog(`Stream ready with ${metaPayload.plannedAttempts} planned attempts.`);
+              setGenerationStatus("Streaming code...");
+              continue;
+            }
+
+            if (parsedBlock.event === "attempt") {
+              const attemptPayload = parsedBlock.payload as HfGenerationStreamAttemptPayload;
+              if (attemptPayload.resetCode) {
+                setStreamedHtml("");
+              }
+              appendGenerationLog(
+                `Attempt ${attemptPayload.attemptNumber}/${attemptPayload.totalAttempts} started (${attemptPayload.model}).`,
+              );
+              setGenerationStatus(`Streaming ${attemptPayload.model}...`);
+              continue;
+            }
+
+            if (parsedBlock.event === "token") {
+              const tokenPayload = parsedBlock.payload as HfGenerationStreamTokenPayload;
+              if (tokenPayload.text) {
+                setStreamedHtml((previous) => previous + tokenPayload.text);
+              }
+              continue;
+            }
+
+            if (parsedBlock.event === "log") {
+              const logPayload = parsedBlock.payload as HfGenerationStreamLogPayload;
+              if (logPayload.message) {
+                appendGenerationLog(logPayload.message);
+              }
+              continue;
+            }
+
+            if (parsedBlock.event === "complete") {
+              const completePayload = parsedBlock.payload as HfGenerationStreamCompletePayload;
+              completed = true;
+
+              if (completePayload.generation.attempts?.length) {
+                completePayload.generation.attempts.forEach((attempt, index) => {
+                  appendGenerationLog(
+                    formatAttemptLogLine(
+                      attempt,
+                      index,
+                      completePayload.generation.attempts?.length ?? 0,
+                    ),
+                  );
+                });
+              }
+
+              appendGenerationLog("Artifact saved. Refreshing shared model list.");
+              setGenerationStatus("Refreshing shared model list...");
+
+              const nextModelId = completePayload.entry.modelId;
+              await loadEntries(nextModelId);
+              setSelectedModelId(nextModelId);
+              updateModelQuery(nextModelId);
+
+              appendGenerationLog("Switching preview to newly generated model.");
+              setGenerationStatus("Loading generated preview...");
+              setGenerationSuccess(`Saved and published ${completePayload.entry.label}.`);
+              setHfApiKey("");
+              setGenerationProvider(
+                provider ||
+                  (completePayload.generation.usedProvider !== "auto"
+                    ? completePayload.generation.usedProvider
+                    : ""),
+              );
+              setActiveMainTab("app");
+              continue;
+            }
+
+            if (parsedBlock.event === "error") {
+              const errorPayload = parsedBlock.payload as HfGenerationStreamErrorPayload;
+              if (errorPayload.attempts?.length) {
+                errorPayload.attempts.forEach((attempt, index) => {
+                  appendGenerationLog(
+                    formatAttemptLogLine(attempt, index, errorPayload.attempts?.length ?? 0),
+                  );
+                });
+              }
+              throw new Error(errorPayload.message || "Generation failed.");
+            }
+          }
+        }
+
+        if (!completed) {
+          throw new Error("Generation stream ended before completion.");
+        }
       } catch (error) {
         setGenerationError((error as Error).message);
         appendGenerationLog(`Generation failed: ${(error as Error).message}`);
@@ -522,16 +641,57 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         <PromptCard prompt={prompt} promptVersion={promptVersion} />
       </aside>
 
-      <section className="min-h-[62vh] bg-white lg:min-h-0">
-        <PreviewFrame
-          html={html}
-          title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
-          loading={listLoading || previewLoading}
-          errorMessage={errorMessage}
-          generationLoading={generationLoading}
-          generationStatus={generationStatus}
-          generationLogs={generationLogs}
-        />
+      <section className="flex min-h-[62vh] flex-col bg-white lg:min-h-0">
+        <div className="border-b border-border/70 px-4 py-2">
+          <div className="inline-flex rounded-lg border border-border/70 bg-secondary/30 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("code")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                activeMainTab === "code"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("app")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                activeMainTab === "app"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              App
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1">
+          {activeMainTab === "code" ? (
+            <CodeStreamPanel
+              streamedHtml={streamedHtml}
+              activeFile={activeCodeFile}
+              onActiveFileChange={setActiveCodeFile}
+              generationLoading={generationLoading}
+              generationStatus={generationStatus}
+              generationLogs={generationLogs}
+              generationError={generationError}
+            />
+          ) : (
+            <PreviewFrame
+              html={html}
+              title={selectedEntry ? `${selectedEntry.label} output` : "No selection"}
+              loading={listLoading || previewLoading}
+              errorMessage={errorMessage}
+              generationLoading={generationLoading}
+              generationStatus={generationStatus}
+              generationLogs={generationLogs}
+            />
+          )}
+        </div>
       </section>
     </div>
   );

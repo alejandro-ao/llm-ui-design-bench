@@ -11,6 +11,7 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
   - Optional Hugging Face provider (or model suffix `:provider`)
 - Call HF Inference Providers and persist generated HTML artifacts.
 - Render artifacts inside a sandboxed iframe.
+- Stream generation tokens into a live code view before switching to app preview.
 
 ## Storage mode
 
@@ -97,3 +98,25 @@ You can optionally pass an explicit provider:
 
 Or pass the provider directly in the model value:
 `MiniMaxAI/MiniMax-M2.5:novita`.
+
+### `POST /api/generate/hf/stream`
+Streaming generation endpoint (`text/event-stream`) used by the dashboard UI.
+
+Request payload:
+
+```json
+{
+  "hfApiKey": "hf_...",
+  "modelId": "moonshotai/Kimi-K2-Instruct-0905",
+  "provider": "novita"
+}
+```
+
+Emits events:
+- `meta`
+- `attempt`
+- `token`
+- `log`
+- `complete`
+- `error`
+- `done`
