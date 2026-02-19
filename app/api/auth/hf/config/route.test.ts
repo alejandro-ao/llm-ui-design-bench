@@ -12,6 +12,8 @@ const originalEnv = {
   HF_OAUTH_CLIENT_ID: process.env.HF_OAUTH_CLIENT_ID,
   HF_OAUTH_SCOPES: process.env.HF_OAUTH_SCOPES,
   HF_OAUTH_PROVIDER_URL: process.env.HF_OAUTH_PROVIDER_URL,
+  SPACE_HOST: process.env.SPACE_HOST,
+  HF_PUBLIC_ORIGIN: process.env.HF_PUBLIC_ORIGIN,
 };
 
 afterEach(() => {
@@ -49,6 +51,18 @@ afterEach(() => {
     delete process.env.HF_OAUTH_PROVIDER_URL;
   } else {
     process.env.HF_OAUTH_PROVIDER_URL = originalEnv.HF_OAUTH_PROVIDER_URL;
+  }
+
+  if (originalEnv.SPACE_HOST === undefined) {
+    delete process.env.SPACE_HOST;
+  } else {
+    process.env.SPACE_HOST = originalEnv.SPACE_HOST;
+  }
+
+  if (originalEnv.HF_PUBLIC_ORIGIN === undefined) {
+    delete process.env.HF_PUBLIC_ORIGIN;
+  } else {
+    process.env.HF_PUBLIC_ORIGIN = originalEnv.HF_PUBLIC_ORIGIN;
   }
 });
 
@@ -105,6 +119,25 @@ describe("GET /api/auth/hf/config", () => {
       mode: "custom",
       clientId: "custom_client_id",
       providerUrl: "https://huggingface.co",
+    });
+  });
+
+  it("uses SPACE_HOST for redirect url when available", async () => {
+    process.env.OAUTH_CLIENT_ID = "space_client_id";
+    process.env.OAUTH_SCOPES = "openid profile";
+    process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
+    process.env.SPACE_HOST = "alejandro-ao-design-evals.hf.space";
+    delete process.env.HF_PUBLIC_ORIGIN;
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/auth/hf/config", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      redirectUrl: "https://alejandro-ao-design-evals.hf.space/oauth/callback",
     });
   });
 });

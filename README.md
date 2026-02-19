@@ -55,6 +55,7 @@ HF_SESSION_COOKIE_SECRET=
 HF_OAUTH_CLIENT_ID=
 HF_OAUTH_SCOPES=openid profile inference-api
 HF_OAUTH_PROVIDER_URL=https://huggingface.co
+HF_PUBLIC_ORIGIN=
 ```
 
 `GENERATION_TIMEOUT_MS` is a total wall-clock budget for one `/api/generate/hf` request.
@@ -80,7 +81,8 @@ With this enabled, Hugging Face injects:
    - `OAUTH_CLIENT_ID`
    - `OAUTH_SCOPES`
    - `OPENID_PROVIDER_URL`
-Callback URL is `/oauth/callback` on your app domain.
+   - `SPACE_HOST`
+Callback URL is `/oauth/callback` on your app domain. In Spaces, this app resolves the redirect origin from `SPACE_HOST` automatically. You can override with `HF_PUBLIC_ORIGIN` if needed.
 
 ### Non-Space hosting
 

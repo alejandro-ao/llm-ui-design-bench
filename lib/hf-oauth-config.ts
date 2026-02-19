@@ -13,6 +13,33 @@ export interface HfOAuthConfig {
   redirectPath: typeof REDIRECT_PATH;
 }
 
+function normalizeOrigin(input: string | undefined): string | null {
+  const trimmed = input?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSpaceHostOrigin(input: string | undefined): string | null {
+  const trimmed = input?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const withoutProtocol = trimmed.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  if (!withoutProtocol) {
+    return null;
+  }
+
+  return `https://${withoutProtocol}`;
+}
+
 function normalizeProviderUrl(input: string | undefined): string {
   const trimmed = input?.trim();
   if (!trimmed) {
@@ -65,6 +92,13 @@ export function resolveHfOAuthConfig(env: NodeJS.ProcessEnv = process.env): HfOA
   };
 }
 
-export function resolveHfOAuthRedirectUrl(origin: string, config = resolveHfOAuthConfig()): string {
-  return new URL(config.redirectPath, origin).toString();
+export function resolveHfOAuthRedirectUrl(
+  origin: string,
+  config = resolveHfOAuthConfig(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicitPublicOrigin = normalizeOrigin(env.HF_PUBLIC_ORIGIN);
+  const spaceHostOrigin = normalizeSpaceHostOrigin(env.SPACE_HOST);
+  const baseOrigin = explicitPublicOrigin || spaceHostOrigin || origin;
+  return new URL(config.redirectPath, baseOrigin).toString();
 }
