@@ -3,52 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { oauthHandleRedirectIfPresent } from "@huggingface/hub";
-
-interface OAuthConfigResponse {
-  enabled: boolean;
-  clientId: string | null;
-  scopes: string[];
-  providerUrl: string;
-  redirectUrl: string;
-}
-
-const OAUTH_NONCE_STORAGE_KEY = "hf:oauth:nonce";
-const OAUTH_CODE_VERIFIER_STORAGE_KEY = "hf:oauth:code_verifier";
-
 function getStatusRedirect(status: string): string {
   return `/?oauth=${encodeURIComponent(status)}`;
-}
-
-function readOAuthPkcePair(): { nonce?: string; codeVerifier?: string } {
-  if (typeof window === "undefined") {
-    return {};
-  }
-
-  try {
-    const nonce = window.sessionStorage.getItem(OAUTH_NONCE_STORAGE_KEY) ?? undefined;
-    const codeVerifier =
-      window.sessionStorage.getItem(OAUTH_CODE_VERIFIER_STORAGE_KEY) ?? undefined;
-    return {
-      nonce,
-      codeVerifier,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function clearOAuthPkcePair(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(OAUTH_NONCE_STORAGE_KEY);
-    window.sessionStorage.removeItem(OAUTH_CODE_VERIFIER_STORAGE_KEY);
-  } catch {
-    // no-op
-  }
 }
 
 export default function OAuthCallbackPage() {
@@ -57,46 +13,50 @@ export default function OAuthCallbackPage() {
   useEffect(() => {
     const run = async () => {
       try {
-        const configResponse = await fetch("/api/auth/hf/config", { cache: "no-store" });
-        if (!configResponse.ok) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("error")) {
           router.replace(getStatusRedirect("error"));
           return;
         }
 
-        const config = (await configResponse.json()) as OAuthConfigResponse;
-        if (!config.enabled || !config.clientId) {
-          router.replace(getStatusRedirect("disabled"));
-          return;
-        }
-
-        const pkce = readOAuthPkcePair();
-        const oauthResult = await oauthHandleRedirectIfPresent({
-          hubUrl: config.providerUrl,
-          nonce: pkce.nonce,
-          codeVerifier: pkce.codeVerifier,
-        });
-        if (!oauthResult) {
+        const code = params.get("code");
+        if (!code) {
           router.replace(getStatusRedirect("missing_code"));
           return;
         }
 
-        const sessionResponse = await fetch("/api/auth/hf/session", {
+        const stateRaw = params.get("state");
+        if (!stateRaw) {
+          router.replace(getStatusRedirect("missing_state"));
+          return;
+        }
+
+        const exchangeResponse = await fetch("/api/auth/hf/exchange", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            accessToken: oauthResult.accessToken,
-            expiresAt: Math.floor(oauthResult.accessTokenExpiresAt.getTime() / 1000),
+            code,
+            state: stateRaw,
           }),
         });
 
-        if (!sessionResponse.ok) {
-          router.replace(getStatusRedirect("error"));
+        if (!exchangeResponse.ok) {
+          const payload = (await exchangeResponse.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          if (
+            typeof payload?.error === "string" &&
+            payload.error.toLowerCase().includes("verifier state is missing")
+          ) {
+            router.replace(getStatusRedirect("missing_pkce"));
+            return;
+          }
+          router.replace(getStatusRedirect("exchange_failed"));
           return;
         }
 
-        clearOAuthPkcePair();
         router.replace(getStatusRedirect("connected"));
       } catch {
         router.replace(getStatusRedirect("error"));

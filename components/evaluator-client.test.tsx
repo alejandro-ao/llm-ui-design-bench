@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replaceMock = vi.fn();
-const oauthLoginUrlMock = vi.fn();
 
 type GenerateRequestBody = {
   hfApiKey?: string;
@@ -213,10 +212,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
-vi.mock("@huggingface/hub", () => ({
-  oauthLoginUrl: (...args: unknown[]) => oauthLoginUrlMock(...args),
-}));
-
 import { EvaluatorClient } from "@/components/evaluator-client";
 
 function installFetchMock() {
@@ -380,8 +375,6 @@ async function saveSkillContent(content: string) {
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
-    oauthLoginUrlMock.mockReset();
-    oauthLoginUrlMock.mockResolvedValue("https://huggingface.co/oauth/authorize");
 
     oauthEnabled = true;
     oauthConnected = false;

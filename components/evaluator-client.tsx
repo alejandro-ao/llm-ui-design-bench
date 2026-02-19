@@ -10,8 +10,6 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { oauthLoginUrl } from "@huggingface/hub";
-
 import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-panel";
 import { PreviewFrame } from "@/components/preview-frame";
 import { PromptCard } from "@/components/prompt-card";
@@ -41,8 +39,6 @@ const MAX_SELECTED_MODELS = 4;
 const SKILL_TOO_LONG_MESSAGE = `Skill must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`;
 const OAUTH_UNAVAILABLE_MESSAGE =
   "OAuth is not configured on this deployment. For Hugging Face Spaces, add `hf_oauth: true` to README metadata and redeploy. You can still use API key fallback.";
-const OAUTH_NONCE_STORAGE_KEY = "hf:oauth:nonce";
-const OAUTH_CODE_VERIFIER_STORAGE_KEY = "hf:oauth:code_verifier";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -157,37 +153,15 @@ function getOAuthConnectErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   const normalized = message.toLowerCase();
 
-  if (normalized.includes("localstorage")) {
-    return "Unable to start Hugging Face OAuth because browser storage is unavailable. Open the direct `*.hf.space` URL and retry.";
-  }
-
   if (normalized.includes("missing clientid")) {
     return OAUTH_UNAVAILABLE_MESSAGE;
   }
 
-  if (normalized.includes("openid-configuration") || normalized.includes("failed to fetch")) {
-    return "Unable to reach Hugging Face OAuth endpoints from this browser context. Open the direct `*.hf.space` URL and retry.";
+  if (normalized.includes("permission") || normalized.includes("navigation")) {
+    return "Unable to start Hugging Face OAuth from this embedded view. Open the direct `*.hf.space` URL and retry.";
   }
 
   return "Unable to start Hugging Face OAuth. Try again.";
-}
-
-function persistOAuthPkcePair(nonce?: string, codeVerifier?: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    if (nonce) {
-      window.sessionStorage.setItem(OAUTH_NONCE_STORAGE_KEY, nonce);
-    }
-
-    if (codeVerifier) {
-      window.sessionStorage.setItem(OAUTH_CODE_VERIFIER_STORAGE_KEY, codeVerifier);
-    }
-  } catch {
-    // If session storage is unavailable, oauth callback will fail and surface a clear error.
-  }
 }
 
 function parseSseEventBlock(
@@ -409,6 +383,14 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       setGenerationError(null);
       setOauthUiError(null);
       void loadOAuthState();
+    } else if (oauthStatus === "disabled") {
+      setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
+    } else if (oauthStatus === "missing_pkce") {
+      setOauthUiError(
+        "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
+      );
+    } else if (oauthStatus === "exchange_failed") {
+      setOauthUiError("Unable to complete Hugging Face OAuth exchange. Try connecting again.");
     } else {
       setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
     }
@@ -616,16 +598,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     setOauthActionLoading(true);
 
     try {
-      const oauthPkceState: { nonce?: string; codeVerifier?: string } = {};
-      const loginUrl = await oauthLoginUrl({
-        clientId: oauthConfig.clientId,
-        hubUrl: oauthConfig.providerUrl,
-        scopes: oauthConfig.scopes.join(" "),
-        redirectUrl: oauthConfig.redirectUrl,
-        localStorage: oauthPkceState,
-      });
-      persistOAuthPkcePair(oauthPkceState.nonce, oauthPkceState.codeVerifier);
-
+      const loginUrl = "/api/auth/hf/start";
       setOauthActionLoading(false);
       window.location.assign(loginUrl);
       return;
