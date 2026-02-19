@@ -426,8 +426,18 @@ export function extractHtmlDocument(rawContent: string): string {
     throw new HFGenerationError("Model returned empty output.", 422);
   }
 
-  const fenced = trimmed.match(/```(?:html)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1]?.trim() || trimmed;
+  const fencedBlocks = [...trimmed.matchAll(/```(?:[a-z0-9_-]+)?[^\n]*\n([\s\S]*?)```/gi)]
+    .map((match) => match[1]?.trim())
+    .filter((block): block is string => Boolean(block));
+  const fencedHtmlCandidate = fencedBlocks.find((block) => isLikelyHtml(block));
+  const candidate = (
+    fencedHtmlCandidate ??
+    fencedBlocks[0] ??
+    trimmed
+  )
+    .replace(/^```(?:[a-z0-9_-]+)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 
   const lowerCandidate = candidate.toLowerCase();
   const doctypeIndex = lowerCandidate.indexOf("<!doctype html");

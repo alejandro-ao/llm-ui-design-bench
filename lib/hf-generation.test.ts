@@ -35,6 +35,27 @@ describe("extractHtmlDocument", () => {
     expect(html).toContain("<body>ok</body>");
   });
 
+  it("extracts html from prose-wrapped fenced output", () => {
+    const html = extractHtmlDocument(
+      [
+        "Here is the updated page:",
+        "```html",
+        "<!doctype html><html><body>wrapped</body></html>",
+        "```",
+      ].join("\n"),
+    );
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("<body>wrapped</body>");
+  });
+
+  it("extracts html when the opening fence is present without a closing fence", () => {
+    const html = extractHtmlDocument(
+      "```html\n<!doctype html><html><body>unclosed fence</body></html>",
+    );
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("<body>unclosed fence</body>");
+  });
+
   it("throws when html is missing", () => {
     expect(() => extractHtmlDocument("hello world")).toThrow(HFGenerationError);
   });

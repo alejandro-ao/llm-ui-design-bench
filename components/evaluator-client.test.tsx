@@ -16,6 +16,7 @@ type StreamBehavior =
   | {
       kind: "success";
       html: string;
+      streamedText?: string;
       attempts?: Array<{
         model: string;
         provider: string;
@@ -92,7 +93,7 @@ function encodeSseEvent(event: string, payload: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
-function buildSuccessStream(modelId: string, html: string): Response {
+function buildSuccessStream(modelId: string, html: string, streamedText = html): Response {
   const provider = "auto";
   const resolvedAttempts = [
     {
@@ -116,8 +117,8 @@ function buildSuccessStream(modelId: string, html: string): Response {
       provider,
       resetCode: false,
     }),
-    encodeSseEvent("token", { text: html.slice(0, Math.ceil(html.length / 2)) }),
-    encodeSseEvent("token", { text: html.slice(Math.ceil(html.length / 2)) }),
+    encodeSseEvent("token", { text: streamedText.slice(0, Math.ceil(streamedText.length / 2)) }),
+    encodeSseEvent("token", { text: streamedText.slice(Math.ceil(streamedText.length / 2)) }),
     encodeSseEvent("complete", {
       result: {
         modelId,
@@ -341,7 +342,7 @@ function installFetchMock() {
           return buildErrorStream(body.modelId, behavior.message, behavior.attempts);
         }
 
-        return buildSuccessStream(body.modelId, behavior.html);
+        return buildSuccessStream(body.modelId, behavior.html, behavior.streamedText);
       }
 
       return new Response(JSON.stringify({ error: "not found" }), {
@@ -580,6 +581,36 @@ describe("EvaluatorClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Code" }));
     expect(screen.getByText(/MiniMax session output/i)).toBeInTheDocument();
+  });
+
+  it("replaces fenced streamed text with final extracted html on completion", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Clean final html</body></html>",
+      streamedText:
+        "```html\n<!doctype html><html><body>Clean final html</body></html>\n```",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Code" }));
+    expect(screen.getByText(/Clean final html/i)).toBeInTheDocument();
+    expect(screen.queryByText("```")).not.toBeInTheDocument();
   });
 
   it("continues remaining models when one generation fails", async () => {

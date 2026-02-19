@@ -816,7 +816,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   ...current,
                   status: "done",
                   finalHtml: payload.result.html,
-                  streamedHtml: current.streamedHtml || payload.result.html,
+                  streamedHtml: payload.result.html,
                   attempts: payload.generation.attempts,
                   error: null,
                 }));
