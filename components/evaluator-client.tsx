@@ -26,6 +26,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MAX_SKILL_CONTENT_CHARS } from "@/lib/prompt";
 import type {
   HfGenerationStreamAttemptPayload,
   HfGenerationStreamCompletePayload,
@@ -37,6 +38,7 @@ import type {
 
 const BASELINE_MODEL_ID = "baseline";
 const MAX_SELECTED_MODELS = 4;
+const SKILL_TOO_LONG_MESSAGE = `Skill must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`;
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -235,6 +237,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [skillContent, setSkillContent] = useState("");
+  const [skillDraft, setSkillDraft] = useState("");
+  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
 
   const [hfApiKey, setHfApiKey] = useState("");
   const [generationBillTo, setGenerationBillTo] = useState("");
@@ -522,6 +528,36 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     [generationLoading, selectedModelId],
   );
 
+  const openSkillModal = useCallback(() => {
+    setSkillDraft(skillContent);
+    setSkillError(null);
+    setIsSkillModalOpen(true);
+  }, [skillContent]);
+
+  const closeSkillModal = useCallback(() => {
+    setIsSkillModalOpen(false);
+    setSkillError(null);
+    setSkillDraft(skillContent);
+  }, [skillContent]);
+
+  const handleSaveSkill = useCallback(() => {
+    const normalizedSkill = skillDraft.trim();
+    if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
+      setSkillError(SKILL_TOO_LONG_MESSAGE);
+      return;
+    }
+
+    setSkillContent(normalizedSkill);
+    setSkillError(null);
+    setIsSkillModalOpen(false);
+  }, [skillDraft]);
+
+  const handleClearSkill = useCallback(() => {
+    setSkillDraft("");
+    setSkillContent("");
+    setSkillError(null);
+  }, []);
+
   const handleOAuthConnect = useCallback(async () => {
     if (!oauthConfig?.enabled || !oauthConfig.clientId) {
       setGenerationError("Hugging Face OAuth is not configured on this deployment.");
@@ -582,6 +618,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
       const apiKey = hfApiKey.trim();
       const billTo = generationBillTo.trim();
+      const normalizedSkill = skillContent.trim();
 
       if (!selectedModels.length) {
         setGenerationError("Select at least one model to generate.");
@@ -592,6 +629,11 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         setGenerationError(
           "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation.",
         );
+        return;
+      }
+
+      if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
+        setGenerationError(SKILL_TOO_LONG_MESSAGE);
         return;
       }
 
@@ -639,6 +681,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             hfApiKey?: string;
             modelId: string;
             billTo?: string;
+            skillContent?: string;
           } = {
             modelId: model.modelId,
           };
@@ -649,6 +692,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
           if (billTo) {
             body.billTo = billTo;
+          }
+
+          if (normalizedSkill) {
+            body.skillContent = normalizedSkill;
           }
 
           const response = await fetch("/api/generate/hf/stream", {
@@ -858,6 +905,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       hfApiKey,
       oauthConnected,
       patchSessionModel,
+      skillContent,
       selectedModels,
     ],
   );
@@ -999,22 +1047,41 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                 )}
               </div>
 
-              <Button
-                type="button"
-                className="w-full"
-                variant="accent"
-                disabled={!canOpenGenerateModal || generationLoading}
-                onClick={() => {
-                  setGenerationError(null);
-                  setIsGenerateModalOpen(true);
-                }}
-              >
-                Generate Selected
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={generationLoading}
+                  onClick={openSkillModal}
+                >
+                  {skillContent ? "Edit Skill" : "Add Skill"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="accent"
+                  disabled={!canOpenGenerateModal || generationLoading}
+                  onClick={() => {
+                    setGenerationError(null);
+                    setIsGenerateModalOpen(true);
+                  }}
+                >
+                  Generate Selected
+                </Button>
+              </div>
 
               <p className="text-[11px] text-muted-foreground">
                 Generated outputs are kept in memory for this browser session only.
               </p>
+
+              {skillContent ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Skill attached • {skillContent.length} chars
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  No skill attached.
+                </p>
+              )}
 
               {generationSuccess ? (
                 <p className="text-xs text-green-600 dark:text-green-400">{generationSuccess}</p>
@@ -1114,6 +1181,95 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           </div>
         </section>
       </div>
+
+      {isSkillModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skill-modal-title"
+          onClick={closeSkillModal}
+        >
+          <Card
+            className="w-full max-w-2xl gap-3 py-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <CardHeader className="px-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle id="skill-modal-title" className="text-base">
+                    Add Skill Context
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Paste custom design skill instructions. This skill applies to all models in this generation batch.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={closeSkillModal}
+                >
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 px-4">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="skill-content"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Skill Content
+                </label>
+                <textarea
+                  id="skill-content"
+                  value={skillDraft}
+                  onChange={(event) => {
+                    setSkillDraft(event.target.value);
+                    if (skillError) {
+                      setSkillError(null);
+                    }
+                  }}
+                  placeholder="Paste your frontend design skill content here..."
+                  className="h-52 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:border-ring"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {skillDraft.trim().length}/{MAX_SKILL_CONTENT_CHARS} characters
+                </p>
+              </div>
+
+              {skillError ? (
+                <p className="text-xs text-destructive">{skillError}</p>
+              ) : null}
+
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  variant="accent"
+                  onClick={handleSaveSkill}
+                >
+                  Save Skill
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleClearSkill}
+                >
+                  Clear Skill
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closeSkillModal}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       {isGenerateModalOpen ? (
         <div

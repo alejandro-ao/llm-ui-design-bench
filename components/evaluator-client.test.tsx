@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ type GenerateRequestBody = {
   hfApiKey?: string;
   modelId: string;
   billTo?: string;
+  skillContent?: string;
 };
 
 type StreamBehavior =
@@ -366,6 +367,15 @@ async function addModelFromSearch(query: string, expectedLabel: string) {
   await user.click(screen.getByRole("button", { name: new RegExp(expectedLabel, "i") }));
 }
 
+async function saveSkillContent(content: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /Add Skill|Edit Skill/i }));
+  const textarea = screen.getByLabelText("Skill Content");
+  await user.clear(textarea);
+  await user.type(textarea, content);
+  await user.click(screen.getByRole("button", { name: "Save Skill" }));
+}
+
 describe("EvaluatorClient", () => {
   beforeEach(() => {
     replaceMock.mockReset();
@@ -434,6 +444,96 @@ describe("EvaluatorClient", () => {
 
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(4);
     expect(screen.getByText("You can compare up to 4 models at once.")).toBeInTheDocument();
+  });
+
+  it("includes saved skill content in generation requests", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi session output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await saveSkillContent("  Use magazine-style typography and dramatic spacing.  ");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests).toHaveLength(1);
+    expect(generateRequests[0]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
+      skillContent: "Use magazine-style typography and dramatic spacing.",
+    });
+  });
+
+  it("clearing skill removes it from subsequent generation requests", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi session output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await saveSkillContent("Use strong asymmetry and clean card rhythm.");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests[0]?.skillContent).toBe("Use strong asymmetry and clean card rhythm.");
+
+    await user.click(screen.getByRole("button", { name: /Add Skill|Edit Skill/i }));
+    await user.click(screen.getByRole("button", { name: "Clear Skill" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(generateRequests).toHaveLength(2);
+    });
+
+    expect(generateRequests[1]).not.toHaveProperty("skillContent");
+  });
+
+  it("blocks saving skill content over 8000 characters", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Add Skill|Edit Skill/i }));
+    const textarea = screen.getByLabelText("Skill Content");
+    fireEvent.change(textarea, { target: { value: "x".repeat(8001) } });
+    await user.click(screen.getByRole("button", { name: "Save Skill" }));
+
+    expect(screen.getByText("Skill must be 8000 characters or fewer.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("runs sequential generation for selected models and shows final preview", async () => {

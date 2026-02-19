@@ -20,7 +20,11 @@ import type {
   HfGenerationStreamEventName,
 } from "@/lib/hf-stream-events";
 import { inferVendorFromModelId } from "@/lib/models";
-import { SHARED_PROMPT } from "@/lib/prompt";
+import {
+  buildPromptWithSkill,
+  MAX_SKILL_CONTENT_CHARS,
+  SHARED_PROMPT,
+} from "@/lib/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +34,7 @@ interface GeneratePayload {
   modelId?: string;
   provider?: string;
   billTo?: string;
+  skillContent?: string;
 }
 
 type StreamEventPayload =
@@ -53,6 +58,24 @@ function jsonError(
     },
     { status },
   );
+}
+
+function logGenerateStreamRoute(
+  level: "info" | "warn" | "error",
+  event: string,
+  fields: Record<string, unknown>,
+): void {
+  if (level === "info") {
+    console.info(`[api/generate/hf/stream] ${event}`, fields);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(`[api/generate/hf/stream] ${event}`, fields);
+    return;
+  }
+
+  console.error(`[api/generate/hf/stream] ${event}`, fields);
 }
 
 function deriveModelLabel(modelId: string): string {
@@ -125,6 +148,7 @@ export async function POST(request: NextRequest) {
     const rawHfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
     const billTo = payload.billTo?.trim();
+    const normalizedSkillContent = payload.skillContent?.trim();
 
     if (!modelInput) {
       return jsonError("Model ID is required.", 400);
@@ -134,11 +158,28 @@ export async function POST(request: NextRequest) {
       return jsonError("Bill To format is invalid.", 400);
     }
 
+    if (normalizedSkillContent && normalizedSkillContent.length > MAX_SKILL_CONTENT_CHARS) {
+      return jsonError(
+        `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+        400,
+      );
+    }
+
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
     const hfApiKey = resolveHfApiKeyFromRequest(request, rawHfApiKey);
     const baselineHtml = await getBaselineHtml();
+    const prompt = buildPromptWithSkill(SHARED_PROMPT, normalizedSkillContent);
     const plannedAttempts = buildHfAttemptPlan(modelId, provider);
     const encoder = new TextEncoder();
+
+    logGenerateStreamRoute("info", "request_validated", {
+      modelId,
+      provider: provider ?? "auto",
+      generationTimeoutMs: process.env.GENERATION_TIMEOUT_MS ?? "default",
+      generationMaxTokens: process.env.GENERATION_MAX_TOKENS ?? "default",
+      hasSkill: Boolean(normalizedSkillContent),
+      skillChars: normalizedSkillContent?.length ?? 0,
+    });
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -164,7 +205,7 @@ export async function POST(request: NextRequest) {
               modelId,
               provider,
               billTo: billTo || undefined,
-              prompt: SHARED_PROMPT,
+              prompt,
               baselineHtml,
               onAttempt: async (attempt) => {
                 enqueue("attempt", attempt);

@@ -25,6 +25,7 @@ import {
   buildHfOAuthSessionPayload,
   sealHfOAuthSession,
 } from "@/lib/hf-oauth-session";
+import { MAX_SKILL_CONTENT_CHARS, SHARED_PROMPT } from "@/lib/prompt";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "generate-hf-tests-"));
@@ -142,6 +143,72 @@ describe("POST /api/generate/hf", () => {
     );
 
     expect(payload).not.toHaveProperty("entry");
+  });
+
+  it("accepts skillContent and composes prompt context", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>generated page</body></html>",
+      usedModel: "moonshotai/kimi-k2-instruct",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "moonshotai/kimi-k2-instruct",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 900,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          skillContent: "  Use editorial typography and generous whitespace.  ",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    const calledInput = generateMock.mock.calls.at(-1)?.[0] as { prompt: string };
+    expect(calledInput.prompt).toContain(SHARED_PROMPT);
+    expect(calledInput.prompt).toContain("Additional user-provided design skill");
+    expect(calledInput.prompt).toContain("--- BEGIN USER SKILL ---");
+    expect(calledInput.prompt).toContain("Use editorial typography and generous whitespace.");
+    expect(calledInput.prompt).toContain("--- END USER SKILL ---");
+  });
+
+  it("rejects oversized skillContent", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          skillContent: "x".repeat(MAX_SKILL_CONTENT_CHARS + 1),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+    });
   });
 
   it("validates required hf key", async () => {

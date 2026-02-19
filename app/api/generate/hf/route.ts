@@ -12,7 +12,11 @@ import {
   type HfGenerationAttempt,
 } from "@/lib/hf-generation";
 import { inferVendorFromModelId } from "@/lib/models";
-import { SHARED_PROMPT } from "@/lib/prompt";
+import {
+  buildPromptWithSkill,
+  MAX_SKILL_CONTENT_CHARS,
+  SHARED_PROMPT,
+} from "@/lib/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +26,7 @@ interface GeneratePayload {
   modelId?: string;
   provider?: string;
   billTo?: string;
+  skillContent?: string;
 }
 
 function jsonError(
@@ -141,6 +146,7 @@ export async function POST(request: NextRequest) {
     const rawHfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
     const billTo = payload.billTo?.trim();
+    const normalizedSkillContent = payload.skillContent?.trim();
 
     if (!modelInput) {
       logGenerateRoute("warn", "request_rejected_missing_model_id", {
@@ -153,14 +159,24 @@ export async function POST(request: NextRequest) {
       return jsonError("Bill To format is invalid.", 400);
     }
 
+    if (normalizedSkillContent && normalizedSkillContent.length > MAX_SKILL_CONTENT_CHARS) {
+      return jsonError(
+        `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+        400,
+      );
+    }
+
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
     const hfApiKey = resolveHfApiKeyFromRequest(request, rawHfApiKey);
+    const prompt = buildPromptWithSkill(SHARED_PROMPT, normalizedSkillContent);
     logGenerateRoute("info", "request_validated", {
       requestId,
       modelId,
       provider: provider ?? "auto",
       generationTimeoutMs: process.env.GENERATION_TIMEOUT_MS ?? "default",
       generationMaxTokens: process.env.GENERATION_MAX_TOKENS ?? "default",
+      hasSkill: Boolean(normalizedSkillContent),
+      skillChars: normalizedSkillContent?.length ?? 0,
     });
 
     const baselineHtml = await getBaselineHtml();
@@ -174,7 +190,7 @@ export async function POST(request: NextRequest) {
       modelId,
       provider,
       billTo: billTo || undefined,
-      prompt: SHARED_PROMPT,
+      prompt,
       baselineHtml,
       traceId: requestId,
     });

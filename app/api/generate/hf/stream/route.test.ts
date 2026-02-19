@@ -25,6 +25,7 @@ import {
   buildHfOAuthSessionPayload,
   sealHfOAuthSession,
 } from "@/lib/hf-oauth-session";
+import { MAX_SKILL_CONTENT_CHARS, SHARED_PROMPT } from "@/lib/prompt";
 
 async function createProjectRoot(): Promise<string> {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "generate-hf-stream-tests-"));
@@ -186,6 +187,72 @@ describe("POST /api/generate/hf/stream", () => {
       },
     });
     expect(rawStream).not.toContain("Saving artifact");
+  });
+
+  it("accepts skillContent and composes prompt context", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateStreamMock.mockResolvedValue({
+      html: "<!doctype html><html><body>skill output</body></html>",
+      usedModel: "moonshotai/kimi-k2-instruct",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "moonshotai/kimi-k2-instruct",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 850,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          skillContent: "  Favor asymmetric hero layouts and clear visual rhythm.  ",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(generateStreamMock).toHaveBeenCalled();
+    const calledInput = generateStreamMock.mock.calls.at(-1)?.[0] as { prompt: string };
+    expect(calledInput.prompt).toContain(SHARED_PROMPT);
+    expect(calledInput.prompt).toContain("Additional user-provided design skill");
+    expect(calledInput.prompt).toContain("--- BEGIN USER SKILL ---");
+    expect(calledInput.prompt).toContain("Favor asymmetric hero layouts and clear visual rhythm.");
+    expect(calledInput.prompt).toContain("--- END USER SKILL ---");
+  });
+
+  it("rejects oversized skillContent", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          skillContent: "x".repeat(MAX_SKILL_CONTENT_CHARS + 1),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+    });
   });
 
   it("emits error with attempts and done on terminal failure", async () => {
