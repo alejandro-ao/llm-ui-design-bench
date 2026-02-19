@@ -228,6 +228,7 @@ function installFetchMock() {
           JSON.stringify({
             enabled: oauthEnabled,
             mode: "custom",
+            exchangeMethod: "client_secret",
             clientId: oauthEnabled ? "hf_client" : null,
             scopes: ["openid", "profile", "inference-api"],
             providerUrl: "https://huggingface.co",
@@ -462,6 +463,24 @@ describe("EvaluatorClient", () => {
 
     expect(screen.getByText(/hf_oauth: true/i)).toBeInTheDocument();
     expect(screen.getByText(/redeploy/i)).toBeInTheDocument();
+  });
+
+  it("renders sanitized oauth error message from callback query params", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/?oauth=exchange_failed&oauth_error=Unable%20to%20complete%20Hugging%20Face%20OAuth%20exchange%3A%20Invalid%20authorization%20code",
+    );
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText("Unable to complete Hugging Face OAuth exchange: Invalid authorization code"),
+    ).toBeInTheDocument();
   });
 
   it("includes saved skill content in generation requests", async () => {

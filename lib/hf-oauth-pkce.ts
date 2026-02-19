@@ -42,19 +42,22 @@ export function buildHfOAuthAuthorizeUrl(input: {
   scopes: string[];
   redirectUrl: string;
   state: string;
-  codeChallenge: string;
+  codeChallenge?: string;
 }): string {
   const authorizeUrl = new URL("/oauth/authorize", normalizeProviderOrigin(input.providerUrl));
 
-  authorizeUrl.search = new URLSearchParams({
+  const params = new URLSearchParams({
     client_id: input.clientId,
     scope: input.scopes.join(" "),
     response_type: "code",
     redirect_uri: input.redirectUrl,
     state: input.state,
-    code_challenge: input.codeChallenge,
-    code_challenge_method: "S256",
-  }).toString();
+  });
+  if (input.codeChallenge) {
+    params.set("code_challenge", input.codeChallenge);
+    params.set("code_challenge_method", "S256");
+  }
+  authorizeUrl.search = params.toString();
 
   return authorizeUrl.toString();
 }

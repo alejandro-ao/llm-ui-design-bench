@@ -53,6 +53,7 @@ GENERATION_TIMEOUT_MS=1200000
 GENERATION_MAX_TOKENS=32768
 HF_SESSION_COOKIE_SECRET=
 HF_OAUTH_CLIENT_ID=
+HF_OAUTH_CLIENT_SECRET=
 HF_OAUTH_SCOPES=openid profile inference-api
 HF_OAUTH_PROVIDER_URL=https://huggingface.co
 HF_PUBLIC_ORIGIN=
@@ -79,10 +80,15 @@ Checklist:
 
 With this enabled, Hugging Face injects:
    - `OAUTH_CLIENT_ID`
+   - `OAUTH_CLIENT_SECRET`
    - `OAUTH_SCOPES`
    - `OPENID_PROVIDER_URL`
    - `SPACE_HOST`
 Callback URL is `/oauth/callback` on your app domain. In Spaces, this app resolves the redirect origin from `SPACE_HOST` automatically. You can override with `HF_PUBLIC_ORIGIN` if needed.
+
+OAuth exchange method selection:
+- `client_secret` when `OAUTH_CLIENT_SECRET` is available (Space-first default).
+- `pkce` fallback when no client secret is present.
 
 ### Non-Space hosting
 
@@ -91,6 +97,7 @@ Callback URL is `/oauth/callback` on your app domain. In Spaces, this app resolv
    - `https://<your-domain>/oauth/callback`
 3. Set:
    - `HF_OAUTH_CLIENT_ID`
+   - `HF_OAUTH_CLIENT_SECRET` (optional but recommended; enables `client_secret` exchange)
    - `HF_OAUTH_SCOPES` (must include `inference-api`)
    - `HF_OAUTH_PROVIDER_URL` (usually `https://huggingface.co`)
    - `HF_SESSION_COOKIE_SECRET`
@@ -224,6 +231,7 @@ Returns public OAuth config for the frontend:
 {
   "enabled": true,
   "mode": "space",
+  "exchangeMethod": "client_secret",
   "clientId": "hf_...",
   "scopes": ["openid", "profile", "inference-api"],
   "providerUrl": "https://huggingface.co",
@@ -253,3 +261,24 @@ Stores OAuth access token in encrypted HttpOnly cookie.
 
 ### `DELETE /api/auth/hf/session`
 Clears OAuth session cookie.
+
+## OAuth troubleshooting
+
+1. Check deployment metadata:
+   - `hf_oauth: true` in README frontmatter.
+2. Check Space runtime env injection:
+   - `OAUTH_CLIENT_ID`
+   - `OAUTH_CLIENT_SECRET`
+   - `OAUTH_SCOPES`
+   - `OPENID_PROVIDER_URL`
+   - `SPACE_HOST`
+3. Check app config endpoint:
+   - `GET /api/auth/hf/config` should return:
+     - `enabled: true`
+     - `mode: "space"`
+     - `exchangeMethod: "client_secret"` (or `pkce` fallback if no secret)
+4. Check required app secret:
+   - `HF_SESSION_COOKIE_SECRET` must be set (32-byte base64/base64url).
+5. If callback fails:
+   - Inspect `POST /api/auth/hf/exchange` JSON response `error`.
+   - The UI shows sanitized provider/server detail when available.

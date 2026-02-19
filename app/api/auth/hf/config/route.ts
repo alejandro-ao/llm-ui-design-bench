@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     enabled: config.enabled,
     mode: config.mode,
+    exchangeMethod: config.exchangeMethod,
     clientId: config.clientId,
     scopes: config.scopes,
     providerUrl: config.providerUrl,

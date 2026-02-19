@@ -67,6 +67,7 @@ interface SearchModelsResponse {
 interface OAuthConfigResponse {
   enabled: boolean;
   mode: "space" | "custom";
+  exchangeMethod: "client_secret" | "pkce";
   clientId: string | null;
   scopes: string[];
   providerUrl: string;

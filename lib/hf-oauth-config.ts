@@ -8,6 +8,8 @@ export interface HfOAuthConfig {
   enabled: boolean;
   mode: HfOAuthMode;
   clientId: string | null;
+  clientSecret: string | null;
+  exchangeMethod: "client_secret" | "pkce";
   scopes: string[];
   providerUrl: string;
   redirectPath: typeof REDIRECT_PATH;
@@ -73,6 +75,9 @@ export function resolveHfOAuthConfig(env: NodeJS.ProcessEnv = process.env): HfOA
   const customClientId = env.HF_OAUTH_CLIENT_ID?.trim();
   const usesSpaceConfig = Boolean(spaceClientId);
   const clientId = spaceClientId || customClientId || null;
+  const clientSecret = usesSpaceConfig
+    ? env.OAUTH_CLIENT_SECRET?.trim() || env.HF_OAUTH_CLIENT_SECRET?.trim() || null
+    : env.HF_OAUTH_CLIENT_SECRET?.trim() || null;
 
   const scopesInput = usesSpaceConfig
     ? env.OAUTH_SCOPES ?? env.HF_OAUTH_SCOPES
@@ -86,6 +91,8 @@ export function resolveHfOAuthConfig(env: NodeJS.ProcessEnv = process.env): HfOA
     enabled: Boolean(clientId),
     mode: usesSpaceConfig ? "space" : "custom",
     clientId,
+    clientSecret,
+    exchangeMethod: clientSecret ? "client_secret" : "pkce",
     scopes: parseScopes(scopesInput),
     providerUrl: normalizeProviderUrl(providerInput),
     redirectPath: REDIRECT_PATH,

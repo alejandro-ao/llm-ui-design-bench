@@ -7,9 +7,11 @@ import { GET } from "@/app/api/auth/hf/config/route";
 
 const originalEnv = {
   OAUTH_CLIENT_ID: process.env.OAUTH_CLIENT_ID,
+  OAUTH_CLIENT_SECRET: process.env.OAUTH_CLIENT_SECRET,
   OAUTH_SCOPES: process.env.OAUTH_SCOPES,
   OPENID_PROVIDER_URL: process.env.OPENID_PROVIDER_URL,
   HF_OAUTH_CLIENT_ID: process.env.HF_OAUTH_CLIENT_ID,
+  HF_OAUTH_CLIENT_SECRET: process.env.HF_OAUTH_CLIENT_SECRET,
   HF_OAUTH_SCOPES: process.env.HF_OAUTH_SCOPES,
   HF_OAUTH_PROVIDER_URL: process.env.HF_OAUTH_PROVIDER_URL,
   SPACE_HOST: process.env.SPACE_HOST,
@@ -29,6 +31,12 @@ afterEach(() => {
     process.env.OAUTH_SCOPES = originalEnv.OAUTH_SCOPES;
   }
 
+  if (originalEnv.OAUTH_CLIENT_SECRET === undefined) {
+    delete process.env.OAUTH_CLIENT_SECRET;
+  } else {
+    process.env.OAUTH_CLIENT_SECRET = originalEnv.OAUTH_CLIENT_SECRET;
+  }
+
   if (originalEnv.OPENID_PROVIDER_URL === undefined) {
     delete process.env.OPENID_PROVIDER_URL;
   } else {
@@ -45,6 +53,12 @@ afterEach(() => {
     delete process.env.HF_OAUTH_SCOPES;
   } else {
     process.env.HF_OAUTH_SCOPES = originalEnv.HF_OAUTH_SCOPES;
+  }
+
+  if (originalEnv.HF_OAUTH_CLIENT_SECRET === undefined) {
+    delete process.env.HF_OAUTH_CLIENT_SECRET;
+  } else {
+    process.env.HF_OAUTH_CLIENT_SECRET = originalEnv.HF_OAUTH_CLIENT_SECRET;
   }
 
   if (originalEnv.HF_OAUTH_PROVIDER_URL === undefined) {
@@ -69,6 +83,7 @@ afterEach(() => {
 describe("GET /api/auth/hf/config", () => {
   it("uses Spaces OAuth env when present", async () => {
     process.env.OAUTH_CLIENT_ID = "space_client_id";
+    process.env.OAUTH_CLIENT_SECRET = "space_client_secret";
     process.env.OAUTH_SCOPES = "openid profile";
     process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
     process.env.HF_OAUTH_CLIENT_ID = "custom_client_id";
@@ -84,6 +99,7 @@ describe("GET /api/auth/hf/config", () => {
       enabled: boolean;
       mode: string;
       clientId: string | null;
+      exchangeMethod: "client_secret" | "pkce";
       providerUrl: string;
       redirectUrl: string;
       scopes: string[];
@@ -92,6 +108,7 @@ describe("GET /api/auth/hf/config", () => {
     expect(payload).toMatchObject({
       enabled: true,
       mode: "space",
+      exchangeMethod: "client_secret",
       clientId: "space_client_id",
       providerUrl: "https://huggingface.co",
       redirectUrl: "http://localhost/oauth/callback",
@@ -104,6 +121,7 @@ describe("GET /api/auth/hf/config", () => {
     delete process.env.OAUTH_SCOPES;
     delete process.env.OPENID_PROVIDER_URL;
     process.env.HF_OAUTH_CLIENT_ID = "custom_client_id";
+    process.env.HF_OAUTH_CLIENT_SECRET = "custom_client_secret";
     process.env.HF_OAUTH_SCOPES = "openid profile inference-api";
     process.env.HF_OAUTH_PROVIDER_URL = "https://huggingface.co";
 
@@ -117,6 +135,7 @@ describe("GET /api/auth/hf/config", () => {
     await expect(response.json()).resolves.toMatchObject({
       enabled: true,
       mode: "custom",
+      exchangeMethod: "client_secret",
       clientId: "custom_client_id",
       providerUrl: "https://huggingface.co",
     });
@@ -127,6 +146,7 @@ describe("GET /api/auth/hf/config", () => {
     process.env.OAUTH_SCOPES = "openid profile";
     process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
     process.env.SPACE_HOST = "alejandro-ao-design-evals.hf.space";
+    process.env.OAUTH_CLIENT_SECRET = "space_client_secret";
     delete process.env.HF_PUBLIC_ORIGIN;
 
     const response = await GET(
@@ -138,6 +158,27 @@ describe("GET /api/auth/hf/config", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       redirectUrl: "https://alejandro-ao-design-evals.hf.space/oauth/callback",
+    });
+  });
+
+  it("falls back to pkce exchange when no client secret is available", async () => {
+    process.env.OAUTH_CLIENT_ID = "space_client_id";
+    delete process.env.OAUTH_CLIENT_SECRET;
+    delete process.env.HF_OAUTH_CLIENT_SECRET;
+    process.env.OAUTH_SCOPES = "openid profile";
+    process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/auth/hf/config", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      enabled: true,
+      mode: "space",
+      exchangeMethod: "pkce",
     });
   });
 });
