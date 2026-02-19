@@ -39,6 +39,8 @@ import type {
 const BASELINE_MODEL_ID = "baseline";
 const MAX_SELECTED_MODELS = 4;
 const SKILL_TOO_LONG_MESSAGE = `Skill must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`;
+const OAUTH_UNAVAILABLE_MESSAGE =
+  "OAuth is not configured on this deployment. For Hugging Face Spaces, add `hf_oauth: true` to README metadata and redeploy. You can still use API key fallback.";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -255,6 +257,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [oauthExpiresAt, setOauthExpiresAt] = useState<number | null>(null);
   const [oauthStatusLoading, setOauthStatusLoading] = useState(true);
   const [oauthActionLoading, setOauthActionLoading] = useState(false);
+  const [oauthUiError, setOauthUiError] = useState<string | null>(null);
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [activeCodeFile, setActiveCodeFile] = useState<CodeFileName>("index.html");
@@ -330,10 +333,13 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         setOauthConnected(false);
         setOauthExpiresAt(null);
       }
+
+      setOauthUiError(null);
     } catch {
       setOauthConfig(null);
       setOauthConnected(false);
       setOauthExpiresAt(null);
+      setOauthUiError("Unable to check Hugging Face OAuth status right now.");
     } finally {
       setOauthStatusLoading(false);
     }
@@ -357,13 +363,15 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     if (oauthStatus === "connected") {
       setGenerationSuccess("Connected with Hugging Face OAuth.");
       setGenerationError(null);
+      setOauthUiError(null);
       void loadOAuthState();
     } else if (oauthStatus === "disconnected") {
       setGenerationSuccess("Disconnected from Hugging Face OAuth.");
       setGenerationError(null);
+      setOauthUiError(null);
       void loadOAuthState();
     } else {
-      setGenerationError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
+      setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
     }
 
     params.delete("oauth");
@@ -560,11 +568,12 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
   const handleOAuthConnect = useCallback(async () => {
     if (!oauthConfig?.enabled || !oauthConfig.clientId) {
-      setGenerationError("Hugging Face OAuth is not configured on this deployment.");
+      setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
       return;
     }
 
     setGenerationError(null);
+    setOauthUiError(null);
     setOauthActionLoading(true);
 
     try {
@@ -579,7 +588,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       window.location.assign(loginUrl);
       return;
     } catch {
-      setGenerationError("Unable to start Hugging Face OAuth. Try again.");
+      setOauthUiError("Unable to start Hugging Face OAuth. Try again.");
     }
 
     setOauthActionLoading(false);
@@ -588,6 +597,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const handleOAuthDisconnect = useCallback(async () => {
     setOauthActionLoading(true);
     setGenerationError(null);
+    setOauthUiError(null);
 
     try {
       const response = await fetch("/api/auth/hf/session", {
@@ -603,7 +613,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       setOauthExpiresAt(null);
       await loadOAuthState();
     } catch {
-      setGenerationError("Unable to disconnect Hugging Face OAuth.");
+      setOauthUiError("Unable to disconnect Hugging Face OAuth.");
     } finally {
       setOauthActionLoading(false);
     }
@@ -897,7 +907,6 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         );
       }
 
-      setHfApiKey("");
     },
     [
       appendModelLog,
@@ -1089,6 +1098,58 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               {generationError && !isGenerateModalOpen ? (
                 <p className="text-xs text-destructive">{generationError}</p>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="gap-3 py-3">
+            <CardHeader className="px-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Hugging Face Auth</CardTitle>
+                <Badge
+                  variant={oauthStatusLoading ? "outline" : oauthConnected ? "default" : "outline"}
+                >
+                  {oauthStatusLoading ? "checking" : oauthConnected ? "connected" : "not connected"}
+                </Badge>
+              </div>
+              <CardDescription className="text-xs">
+                Connect once to generate without manually pasting a key every time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 px-3">
+              {oauthStatusLoading ? (
+                <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
+              ) : oauthConfig?.enabled ? (
+                oauthConnected ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">{formatOAuthExpiry(oauthExpiresAt)}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={handleOAuthDisconnect}
+                      disabled={oauthActionLoading || generationLoading}
+                    >
+                      {oauthActionLoading ? "Disconnecting..." : "Disconnect Hugging Face"}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleOAuthConnect}
+                    disabled={oauthActionLoading || generationLoading}
+                  >
+                    {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
+                  </Button>
+                )
+              ) : (
+                <p className="text-xs text-muted-foreground">{OAUTH_UNAVAILABLE_MESSAGE}</p>
+              )}
+
+              {oauthUiError ? <p className="text-xs text-destructive">{oauthUiError}</p> : null}
             </CardContent>
           </Card>
 
@@ -1351,9 +1412,13 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                     )
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      OAuth is not configured on this deployment. Use API key fallback.
+                      {OAUTH_UNAVAILABLE_MESSAGE}
                     </p>
                   )}
+
+                  {oauthUiError ? (
+                    <p className="text-xs text-destructive">{oauthUiError}</p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-1">
@@ -1361,13 +1426,25 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                     API Key
                     <span className="ml-1 text-muted-foreground/50">optional when OAuth is connected</span>
                   </label>
-                  <Input
-                    type="password"
-                    value={hfApiKey}
-                    onChange={(event) => setHfApiKey(event.target.value)}
-                    placeholder="hf_..."
-                    autoComplete="off"
-                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="password"
+                      value={hfApiKey}
+                      onChange={(event) => setHfApiKey(event.target.value)}
+                      placeholder="hf_..."
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setHfApiKey("")}
+                      disabled={generationLoading || hfApiKey.length === 0}
+                    >
+                      Clear
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-1">

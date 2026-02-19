@@ -447,6 +447,30 @@ describe("EvaluatorClient", () => {
     expect(screen.getByText("You can compare up to 4 models at once.")).toBeInTheDocument();
   });
 
+  it("shows sidebar OAuth controls when enabled", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Hugging Face Auth")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
+  });
+
+  it("shows explicit Spaces OAuth setup guidance when OAuth is unavailable", async () => {
+    oauthEnabled = false;
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/hf_oauth: true/i)).toBeInTheDocument();
+    expect(screen.getByText(/redeploy/i)).toBeInTheDocument();
+  });
+
   it("includes saved skill content in generation requests", async () => {
     streamBehaviors["moonshotai/Kimi-K2.5"] = {
       kind: "success",
@@ -672,11 +696,11 @@ describe("EvaluatorClient", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Generate Selected" }));
 
-    expect(screen.getByText(/Token expires/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Disconnect Hugging Face" }));
+    expect(screen.getAllByText(/Token expires/).length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "Disconnect Hugging Face" })[0]);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Connect with Hugging Face" }).length).toBeGreaterThan(0);
     });
   });
 
@@ -707,5 +731,45 @@ describe("EvaluatorClient", () => {
     expect(generateRequests).toHaveLength(1);
     expect(generateRequests[0]).toMatchObject({ modelId: "moonshotai/Kimi-K2.5" });
     expect(generateRequests[0]).not.toHaveProperty("hfApiKey");
+  });
+
+  it("retains manual API key across multiple generation runs in the same session", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi run output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(generateRequests).toHaveLength(2);
+    });
+
+    expect(generateRequests[0]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
+    });
+    expect(generateRequests[1]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
+    });
   });
 });

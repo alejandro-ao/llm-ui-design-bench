@@ -7,6 +7,7 @@ sdk: docker
 sdk_version: "latest"
 app_file: app.py
 app_port: 7860
+hf_oauth: true
 pinned: false
 ---
 
@@ -70,14 +71,16 @@ OAuth is supported in both Spaces and non-Space hosting.
 
 ### Spaces (`hf_oauth: true`)
 
-1. Enable OAuth in your Space metadata (`README.md` frontmatter):
-   - `hf_oauth: true`
-2. Hugging Face injects:
+Checklist:
+1. Ensure `hf_oauth: true` is present in this `README.md` frontmatter.
+2. In Space Settings, set `HF_SESSION_COOKIE_SECRET` (32-byte base64/base64url secret).
+3. Redeploy the Space after metadata/env changes.
+
+With this enabled, Hugging Face injects:
    - `OAUTH_CLIENT_ID`
    - `OAUTH_SCOPES`
    - `OPENID_PROVIDER_URL`
-3. Set `HF_SESSION_COOKIE_SECRET` on your deployment (32-byte base64/base64url secret).
-4. Callback URL is `/oauth/callback` on your app domain.
+Callback URL is `/oauth/callback` on your app domain.
 
 ### Non-Space hosting
 
