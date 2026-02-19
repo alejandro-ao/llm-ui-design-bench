@@ -13,8 +13,42 @@ interface OAuthConfigResponse {
   redirectUrl: string;
 }
 
+const OAUTH_NONCE_STORAGE_KEY = "hf:oauth:nonce";
+const OAUTH_CODE_VERIFIER_STORAGE_KEY = "hf:oauth:code_verifier";
+
 function getStatusRedirect(status: string): string {
   return `/?oauth=${encodeURIComponent(status)}`;
+}
+
+function readOAuthPkcePair(): { nonce?: string; codeVerifier?: string } {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const nonce = window.sessionStorage.getItem(OAUTH_NONCE_STORAGE_KEY) ?? undefined;
+    const codeVerifier =
+      window.sessionStorage.getItem(OAUTH_CODE_VERIFIER_STORAGE_KEY) ?? undefined;
+    return {
+      nonce,
+      codeVerifier,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function clearOAuthPkcePair(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(OAUTH_NONCE_STORAGE_KEY);
+    window.sessionStorage.removeItem(OAUTH_CODE_VERIFIER_STORAGE_KEY);
+  } catch {
+    // no-op
+  }
 }
 
 export default function OAuthCallbackPage() {
@@ -35,8 +69,11 @@ export default function OAuthCallbackPage() {
           return;
         }
 
+        const pkce = readOAuthPkcePair();
         const oauthResult = await oauthHandleRedirectIfPresent({
           hubUrl: config.providerUrl,
+          nonce: pkce.nonce,
+          codeVerifier: pkce.codeVerifier,
         });
         if (!oauthResult) {
           router.replace(getStatusRedirect("missing_code"));
@@ -59,6 +96,7 @@ export default function OAuthCallbackPage() {
           return;
         }
 
+        clearOAuthPkcePair();
         router.replace(getStatusRedirect("connected"));
       } catch {
         router.replace(getStatusRedirect("error"));
