@@ -41,21 +41,17 @@ export function buildHfOAuthAuthorizeUrl(input: {
   clientId: string;
   scopes: string[];
   redirectUrl: string;
-  nonce: string;
+  state: string;
   codeChallenge: string;
 }): string {
   const authorizeUrl = new URL("/oauth/authorize", normalizeProviderOrigin(input.providerUrl));
-  const state = JSON.stringify({
-    nonce: input.nonce,
-    redirectUri: input.redirectUrl,
-  });
 
   authorizeUrl.search = new URLSearchParams({
     client_id: input.clientId,
     scope: input.scopes.join(" "),
     response_type: "code",
     redirect_uri: input.redirectUrl,
-    state,
+    state: input.state,
     code_challenge: input.codeChallenge,
     code_challenge_method: "S256",
   }).toString();

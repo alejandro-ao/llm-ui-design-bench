@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 import { POST } from "@/app/api/auth/hf/exchange/route";
+import { buildHfOAuthStateToken } from "@/lib/hf-oauth-state";
 
 const originalEnv = {
   HF_SESSION_COOKIE_SECRET: process.env.HF_SESSION_COOKIE_SECRET,
@@ -180,6 +181,59 @@ describe("POST /api/auth/hf/exchange", () => {
           state: JSON.stringify({
             nonce: "nonce_123",
           }),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("uses sealed oauth state token when cookies are unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token_endpoint: "https://huggingface.co/oauth/token",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "hf_oauth_access_token",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stateToken = buildHfOAuthStateToken({
+      nonce: "nonce_123",
+      codeVerifier: "verifier_123",
+      redirectUri: "http://localhost/oauth/callback",
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/auth/hf/exchange", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "oauth_code_123",
+          state: stateToken,
         }),
       }),
     );

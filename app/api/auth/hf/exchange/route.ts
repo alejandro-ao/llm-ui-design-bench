@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveHfOAuthConfig, resolveHfOAuthRedirectUrl } from "@/lib/hf-oauth-config";
 import { clearHfOAuthPkceCookies, readHfOAuthPkceCookies } from "@/lib/hf-oauth-pkce";
+import { tryParseHfOAuthStateToken } from "@/lib/hf-oauth-state";
 import {
   buildHfOAuthSessionPayload,
   HfOAuthSessionError,
@@ -22,6 +23,7 @@ interface ExchangePayload {
 interface ParsedOAuthState {
   nonce: string;
   redirectUri?: string;
+  codeVerifier?: string;
 }
 
 function jsonError(message: string, status: number) {
@@ -152,8 +154,10 @@ export async function POST(request: NextRequest) {
     const code = payload.code?.trim();
     const stateRaw = payload.state?.trim();
     const cookiePkce = readHfOAuthPkceCookies(request);
-    const codeVerifier = payload.codeVerifier?.trim() || cookiePkce.codeVerifier;
-    const nonce = payload.nonce?.trim() || cookiePkce.nonce;
+    const sealedState = stateRaw ? tryParseHfOAuthStateToken(stateRaw) : null;
+    const codeVerifier =
+      payload.codeVerifier?.trim() || sealedState?.codeVerifier || cookiePkce.codeVerifier;
+    const nonce = payload.nonce?.trim() || sealedState?.nonce || cookiePkce.nonce;
 
     if (!code || !stateRaw) {
       return jsonError("code and state are required.", 400);
@@ -166,7 +170,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const state = parseOAuthState(stateRaw, nonce);
+    const state = sealedState ?? parseOAuthState(stateRaw, nonce);
     const redirectUri = resolveRedirectUri(
       resolveHfOAuthRedirectUrl(request.nextUrl.origin, config),
       state.redirectUri,

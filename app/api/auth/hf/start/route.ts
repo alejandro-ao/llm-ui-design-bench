@@ -6,6 +6,7 @@ import {
   createHfOAuthStartState,
   setHfOAuthPkceCookies,
 } from "@/lib/hf-oauth-pkce";
+import { buildHfOAuthStateToken } from "@/lib/hf-oauth-state";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,12 +25,17 @@ export async function GET(request: NextRequest) {
 
   const redirectUrl = resolveHfOAuthRedirectUrl(request.nextUrl.origin, config);
   const pkce = createHfOAuthStartState();
+  const stateToken = buildHfOAuthStateToken({
+    nonce: pkce.nonce,
+    codeVerifier: pkce.codeVerifier,
+    redirectUri: redirectUrl,
+  });
   const authorizeUrl = buildHfOAuthAuthorizeUrl({
     providerUrl: config.providerUrl,
     clientId: config.clientId,
     scopes: config.scopes,
     redirectUrl,
-    nonce: pkce.nonce,
+    state: stateToken,
     codeChallenge: pkce.codeChallenge,
   });
 

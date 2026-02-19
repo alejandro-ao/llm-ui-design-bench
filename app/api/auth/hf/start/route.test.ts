@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import { GET } from "@/app/api/auth/hf/start/route";
 
 const originalEnv = {
+  HF_SESSION_COOKIE_SECRET: process.env.HF_SESSION_COOKIE_SECRET,
   OAUTH_CLIENT_ID: process.env.OAUTH_CLIENT_ID,
   OAUTH_SCOPES: process.env.OAUTH_SCOPES,
   OPENID_PROVIDER_URL: process.env.OPENID_PROVIDER_URL,
@@ -17,6 +18,12 @@ const originalEnv = {
 };
 
 afterEach(() => {
+  if (originalEnv.HF_SESSION_COOKIE_SECRET === undefined) {
+    delete process.env.HF_SESSION_COOKIE_SECRET;
+  } else {
+    process.env.HF_SESSION_COOKIE_SECRET = originalEnv.HF_SESSION_COOKIE_SECRET;
+  }
+
   if (originalEnv.OAUTH_CLIENT_ID === undefined) {
     delete process.env.OAUTH_CLIENT_ID;
   } else {
@@ -68,6 +75,7 @@ afterEach(() => {
 
 describe("GET /api/auth/hf/start", () => {
   it("redirects to provider authorize endpoint and sets pkce cookies", async () => {
+    process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 21).toString("base64url");
     process.env.HF_OAUTH_CLIENT_ID = "hf_custom_client";
     process.env.HF_OAUTH_SCOPES = "openid profile inference-api";
     process.env.HF_OAUTH_PROVIDER_URL = "https://huggingface.co";
@@ -112,6 +120,7 @@ describe("GET /api/auth/hf/start", () => {
   });
 
   it("uses SPACE_HOST in authorize redirect_uri when available", async () => {
+    process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 23).toString("base64url");
     process.env.OAUTH_CLIENT_ID = "space_client_id";
     process.env.OAUTH_SCOPES = "openid profile";
     process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
