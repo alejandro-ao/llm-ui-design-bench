@@ -88,16 +88,15 @@ export function PreviewFrame({
             </button>
             <span className="w-9 text-right font-mono text-[11px]">{previewZoom}%</span>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white">
+          <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
             <iframe
               title={title}
               sandbox="allow-scripts"
               srcDoc={html}
-              className="block border-0 bg-white"
+              className="absolute top-0 left-0 block border-0 bg-white"
               style={{
                 width: `${scaledFrameSize}%`,
                 height: `${scaledFrameSize}%`,
-                minHeight: "100%",
                 transform: `scale(${zoomScale})`,
                 transformOrigin: "top left",
               }}
