@@ -7,6 +7,16 @@ function getStatusRedirect(status: string): string {
   return `/?oauth=${encodeURIComponent(status)}`;
 }
 
+function getStatusRedirectWithError(status: string, errorMessage?: string): string {
+  const params = new URLSearchParams({
+    oauth: status,
+  });
+  if (errorMessage) {
+    params.set("oauth_error", errorMessage);
+  }
+  return `/?${params.toString()}`;
+}
+
 export default function OAuthCallbackPage() {
   const router = useRouter();
 
@@ -46,14 +56,22 @@ export default function OAuthCallbackPage() {
           const payload = (await exchangeResponse.json().catch(() => null)) as {
             error?: string;
           } | null;
+          const errorMessage = typeof payload?.error === "string" ? payload.error : undefined;
+          if (
+            errorMessage &&
+            errorMessage.toLowerCase().includes("hf_session_cookie_secret")
+          ) {
+            router.replace(getStatusRedirectWithError("session_secret", errorMessage));
+            return;
+          }
           if (
             typeof payload?.error === "string" &&
             payload.error.toLowerCase().includes("verifier state is missing")
           ) {
-            router.replace(getStatusRedirect("missing_pkce"));
+            router.replace(getStatusRedirectWithError("missing_pkce", payload.error));
             return;
           }
-          router.replace(getStatusRedirect("exchange_failed"));
+          router.replace(getStatusRedirectWithError("exchange_failed", errorMessage));
           return;
         }
 

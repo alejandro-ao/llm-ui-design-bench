@@ -25,11 +25,19 @@ export async function GET(request: NextRequest) {
 
   const redirectUrl = resolveHfOAuthRedirectUrl(request.nextUrl.origin, config);
   const pkce = createHfOAuthStartState();
-  const stateToken = buildHfOAuthStateToken({
-    nonce: pkce.nonce,
-    codeVerifier: pkce.codeVerifier,
-    redirectUri: redirectUrl,
-  });
+  let stateToken: string;
+  try {
+    stateToken = buildHfOAuthStateToken({
+      nonce: pkce.nonce,
+      codeVerifier: pkce.codeVerifier,
+      redirectUri: redirectUrl,
+    });
+  } catch (error) {
+    console.error("[api/auth/hf/start] session_secret_invalid", {
+      message: error instanceof Error ? error.message : "unknown",
+    });
+    return redirectToStatus(request, "session_secret");
+  }
   const authorizeUrl = buildHfOAuthAuthorizeUrl({
     providerUrl: config.providerUrl,
     clientId: config.clientId,

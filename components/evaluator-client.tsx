@@ -39,6 +39,8 @@ const MAX_SELECTED_MODELS = 4;
 const SKILL_TOO_LONG_MESSAGE = `Skill must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`;
 const OAUTH_UNAVAILABLE_MESSAGE =
   "OAuth is not configured on this deployment. For Hugging Face Spaces, add `hf_oauth: true` to README metadata and redeploy. You can still use API key fallback.";
+const OAUTH_SECRET_MISCONFIGURED_MESSAGE =
+  "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET in your Space secrets (32-byte base64/base64url) and redeploy.";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -369,6 +371,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
     const params = new URLSearchParams(window.location.search);
     const oauthStatus = params.get("oauth");
+    const oauthStatusError = params.get("oauth_error");
     if (!oauthStatus) {
       return;
     }
@@ -385,17 +388,23 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       void loadOAuthState();
     } else if (oauthStatus === "disabled") {
       setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
+    } else if (oauthStatus === "session_secret") {
+      setOauthUiError(oauthStatusError || OAUTH_SECRET_MISCONFIGURED_MESSAGE);
     } else if (oauthStatus === "missing_pkce") {
       setOauthUiError(
-        "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
+        oauthStatusError ||
+          "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
       );
     } else if (oauthStatus === "exchange_failed") {
-      setOauthUiError("Unable to complete Hugging Face OAuth exchange. Try connecting again.");
+      setOauthUiError(
+        oauthStatusError || "Unable to complete Hugging Face OAuth exchange. Try connecting again.",
+      );
     } else {
       setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
     }
 
     params.delete("oauth");
+    params.delete("oauth_error");
     const nextQuery = params.toString();
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
   }, [loadOAuthState, pathname, router]);

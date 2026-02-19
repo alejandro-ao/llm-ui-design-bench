@@ -142,4 +142,22 @@ describe("GET /api/auth/hf/start", () => {
       "https://alejandro-ao-design-evals.hf.space/oauth/callback",
     );
   });
+
+  it("redirects to session_secret when secret is missing", async () => {
+    delete process.env.HF_SESSION_COOKIE_SECRET;
+    process.env.OAUTH_CLIENT_ID = "space_client_id";
+    process.env.OAUTH_SCOPES = "openid profile";
+    process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
+    process.env.SPACE_HOST = "alejandro-ao-design-evals.hf.space";
+    delete process.env.HF_PUBLIC_ORIGIN;
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/auth/hf/start", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/?oauth=session_secret");
+  });
 });
