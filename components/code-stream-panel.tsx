@@ -190,6 +190,33 @@ function highlightCode(file: CodeFileName, code: string): HighlightSegment[] {
   return highlightHtml(code);
 }
 
+function splitSegmentsByLine(segments: HighlightSegment[]): HighlightSegment[][] {
+  const lines: HighlightSegment[][] = [[]];
+
+  for (const segment of segments) {
+    const rawText = segment.text;
+    if (!rawText) {
+      continue;
+    }
+
+    const parts = rawText.split("\n");
+    parts.forEach((part, index) => {
+      if (part.length > 0) {
+        lines[lines.length - 1]?.push({
+          text: part,
+          type: segment.type,
+        });
+      }
+
+      if (index < parts.length - 1) {
+        lines.push([]);
+      }
+    });
+  }
+
+  return lines;
+}
+
 function extractStyleCode(html: string): string {
   const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
   return blocks.map((block) => block[1]?.trim() ?? "").filter(Boolean).join("\n\n");
@@ -242,6 +269,14 @@ export function CodeStreamPanel({
     () => highlightCode(activeFile, displayCode),
     [activeFile, displayCode],
   );
+  const highlightedLines = useMemo(
+    () => splitSegmentsByLine(highlightedCode),
+    [highlightedCode],
+  );
+  const lineNumberWidth = useMemo(
+    () => Math.max(2, String(highlightedLines.length).length),
+    [highlightedLines.length],
+  );
 
   useEffect(() => {
     if (!generationLoading || showPlaceholder) {
@@ -293,17 +328,39 @@ export function CodeStreamPanel({
         data-testid="code-stream-scroll"
         className="min-h-0 flex-1 overflow-auto bg-[#0d1117] dark:bg-[#0d1117]"
       >
-        <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-6 text-[#c9d1d9]">
+        <div className="min-h-full px-4 py-4 font-mono text-xs leading-6 text-[#c9d1d9]">
           {showPlaceholder ? (
             <span className="text-[#484f58]">{getEmptyState(activeFile)}</span>
           ) : (
-            highlightedCode.map((segment, index) => (
-              <span key={`${segment.type}-${index}`} className={TOKEN_CLASS[segment.type]}>
-                {segment.text}
-              </span>
-            ))
+            <div className="min-w-full whitespace-pre-wrap">
+              {highlightedLines.map((lineSegments, lineIndex) => (
+                <div
+                  key={`line-${lineIndex + 1}`}
+                  className="grid grid-cols-[auto_1fr] gap-4"
+                >
+                  <span
+                    data-testid="code-line-number"
+                    className="select-none text-right text-[#6e7681]"
+                    style={{ minWidth: `${lineNumberWidth}ch` }}
+                  >
+                    {lineIndex + 1}
+                  </span>
+                  <span className="whitespace-pre-wrap">
+                    {lineSegments.length === 0 ? "\u00A0" : null}
+                    {lineSegments.map((segment, segmentIndex) => (
+                      <span
+                        key={`${lineIndex + 1}-${segment.type}-${segmentIndex}`}
+                        className={TOKEN_CLASS[segment.type]}
+                      >
+                        {segment.text}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
-        </pre>
+        </div>
       </div>
 
       <div className="border-t border-border bg-sidebar px-4 py-2.5">

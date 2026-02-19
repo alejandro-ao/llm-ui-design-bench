@@ -55,4 +55,21 @@ describe("CodeStreamPanel", () => {
     expect(screen.getByText("const")).toHaveClass("text-[#ff7b72]");
     expect(screen.getByText("42")).toHaveClass("text-[#79c0ff]");
   });
+
+  it("renders line numbers for code output", () => {
+    render(
+      <CodeStreamPanel
+        streamedHtml={"<html>\n<body>\n  <h1>Hi</h1>\n</body>\n</html>"}
+        activeFile="index.html"
+        onActiveFileChange={() => undefined}
+        generationLoading={false}
+        generationLogs={[]}
+      />,
+    );
+
+    const lineNumbers = screen
+      .getAllByTestId("code-line-number")
+      .map((node) => node.textContent);
+    expect(lineNumbers).toEqual(["1", "2", "3", "4", "5"]);
+  });
 });
