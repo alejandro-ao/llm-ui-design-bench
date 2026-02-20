@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillSync Landing Page Test</title>
+    <style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-width: 1460px;
+    font-family: "Times New Roman", Times, serif;
+    color: #141414;
+    background: #bdbdbd;
+}
+
+.baseline-task-note {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 9999;
+    width: min(420px, calc(100vw - 28px));
+    border: 2px solid #1d1d1d;
+    background: rgba(255, 250, 233, 0.95);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    padding: 10px 12px;
+}
+
+.baseline-task-note strong {
+    display: block;
+    margin: 0 0 3px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.baseline-task-note p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.page {
+    width: 1460px;
+    margin-left: 40px;
+    background: #fffbe4;
+    border: 4px double #303030;
+}
+
+.hero {
+    background: #8e8e8e;
+    color: #111111;
+    border-bottom: 8px solid #2b2b2b;
+}
+
+.nav {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 8px 34px 2px;
+    background: #c2c2c2;
+    border-bottom: 3px solid #5f5f5f;
+}
+
+.logo {
+    font-size: 48px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    line-height: 0.9;
+    color: #404040;
+    text-decoration: underline;
+}
+
+.nav-links {
+    display: flex;
+    list-style: square;
+    gap: 10px;
+    margin: 14px 0 0;
+    padding-left: 16px;
+}
+
+.nav-links a {
+    color: #1a1a1a;
+    text-decoration: none;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.hero-content {
+    text-align: left;
+    padding: 18px 40px 22px;
+}
+
+.hero-content h1 {
+    font-size: 82px;
+    margin: 0 0 8px;
+    line-height: 0.85;
+    letter-spacing: -2px;
+}
+
+.hero-content p {
+    max-width: 540px;
+    font-size: 15px;
+    margin: 0 0 6px;
+}
+
+.hero-cta {
+    display: flex;
+    gap: 4px;
+}
+
+.section {
+    width: 1350px;
+    margin: 0 0 0 45px;
+    padding: 14px 6px 20px;
+    border-bottom: 2px dotted #8f8f8f;
+}
+
+.section h2 {
+    font-size: 39px;
+    margin: 0 0 6px;
+    letter-spacing: -1px;
+}
+
+.section-intro {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #303030;
+}
+
+.announcement {
+    background: #fffad1;
+}
+
+.features {
+    background: #e4e4ff;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 6px;
+}
+
+.feature-card {
+    border: 2px inset #606060;
+    background: #ececec;
+    padding: 10px;
+    min-height: 140px;
+}
+
+.feature-card:nth-child(2n) {
+    background: #dcdcdc;
+}
+
+.feature-card h3 {
+    margin: 0 0 4px;
+    font-size: 29px;
+    line-height: 0.9;
+}
+
+.feature-card p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.about {
+    background: #ffe8e8;
+}
+
+.about-layout {
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+    gap: 8px;
+}
+
+.about-main p {
+    margin: 0 0 8px;
+    font-size: 14px;
+    line-height: 1.15;
+}
+
+.about-side {
+    border: 4px ridge #595959;
+    background: #f7ffde;
+    padding: 8px;
+}
+
+.about-side h3 {
+    margin: 0 0 5px;
+    font-size: 27px;
+}
+
+.about-side ul {
+    margin: 0;
+    padding-left: 14px;
+}
+
+.about-side li {
+    margin-bottom: 2px;
+    font-size: 13px;
+}
+
+.pricing {
+    background: #ebf5ff;
+}
+
+.pricing-grid {
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
+}
+
+.plan {
+    width: 33.333%;
+    border: 3px solid #646464;
+    background: #f4f4f4;
+    padding: 8px 8px 14px;
+}
+
+.plan:nth-child(1) {
+    margin-top: 22px;
+}
+
+.plan:nth-child(3) {
+    margin-top: 37px;
+}
+
+.plan-popular {
+    background: #fff200;
+}
+
+.plan h3 {
+    font-size: 34px;
+    margin: 0 0 4px;
+}
+
+.plan-price {
+    font-size: 57px;
+    margin: 0 0 4px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.plan-price span {
+    font-size: 12px;
+    font-weight: normal;
+}
+
+.plan ul {
+    margin: 0 0 6px;
+    padding-left: 14px;
+}
+
+.plan li {
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.testimonials {
+    background: #f2e7ff;
+}
+
+.testimonial-list {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+}
+
+.testimonial {
+    min-width: 380px;
+    margin: 0;
+    border: 2px solid #000000;
+    background: #ffffff;
+    padding: 8px;
+    font-style: normal;
+}
+
+.testimonial:nth-child(odd) {
+    transform: rotate(-0.5deg);
+}
+
+.testimonial:nth-child(even) {
+    transform: rotate(0.6deg);
+}
+
+.testimonial p {
+    margin: 0 0 4px;
+    font-size: 14px;
+}
+
+.testimonial cite {
+    font-size: 12px;
+}
+
+.faq {
+    background: #eef7db;
+}
+
+.faq-item {
+    border: 2px dashed #7d7d7d;
+    background: #fffffb;
+    margin-bottom: 6px;
+    padding: 8px 10px;
+}
+
+.faq-item h3 {
+    margin: 0 0 3px;
+    font-size: 30px;
+    line-height: 0.95;
+}
+
+.faq-item p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.1;
+}
+
+.cta {
+    text-align: left;
+    background: #d0d0d0;
+    padding: 26px 26px 34px;
+}
+
+.cta h2 {
+    font-size: 48px;
+}
+
+.cta p {
+    font-size: 15px;
+    max-width: 580px;
+}
+
+footer {
+    background: #3e3e3e;
+    color: #f6f6f6;
+    text-align: left;
+    padding: 12px 28px;
+    font-size: 12px;
+}
+
+.cta-button,
+.primary-button,
+.secondary-button,
+.plan-button {
+    border: 2px outset #666666;
+    background: #cecece;
+    color: #000000;
+    padding: 4px 9px;
+    cursor: pointer;
+    border-radius: 0;
+    font-size: 14px;
+    font-family: Verdana, Geneva, sans-serif;
+}
+
+.secondary-button {
+    background: #ededed;
+}
+
+.large {
+    padding: 9px 11px;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+    </style>
+</head>
+<body>
+    <div class="baseline-task-note">
+        <strong>Baseline Task Context</strong>
+        <p>This is the baseline page for the HTML to HTML redesign task. Models should improve the visual design while preserving the same sections, structure, and product claims.</p>
+    </div>
+    <div class="page">
+        <header class="hero" id="top">
+            <nav class="nav">
+                <div class="logo">SkillSync</div>
+                <ul class="nav-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#about">About</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                    <li><a href="#testimonials">Testimonials</a></li>
+                    <li><a href="#faq">FAQ</a></li>
+                </ul>
+                <button class="cta-button">Try It</button>
+            </nav>
+
+            <div class="hero-content">
+                <h1>Do Team Projects In A Better Way Maybe</h1>
+                <p>SkillSync is a software where your team can put tasks and docs and updates together so things are less all over the place than before.</p>
+                <div class="hero-cta">
+                    <button class="primary-button">Start Free Trial</button>
+                    <button class="secondary-button">Contact Sales</button>
+                </div>
+            </div>
+        </header>
+
+        <section class="section announcement">
+            <h2>Info Box</h2>
+            <p>This page has product info and some sections and details if you want to look through all of it before deciding.</p>
+        </section>
+
+        <section id="features" class="section features">
+            <h2>Features</h2>
+            <p class="section-intro">Main stuff included in the product right now.</p>
+            <div class="features-grid">
+                <article class="feature-card">
+                    <h3>Task Boards</h3>
+                    <p>Create tasks, assign owners, set due dates, and move work across stages.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Shared Docs</h3>
+                    <p>Write project notes and operating guides in a central workspace.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Team Chat</h3>
+                    <p>Send direct messages or channel updates with searchable history.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Reports</h3>
+                    <p>Review progress with weekly status summaries and workload charts.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Automations</h3>
+                    <p>Set basic rules for reminders, overdue alerts, and recurring tasks.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Permissions</h3>
+                    <p>Control workspace access for employees, contractors, and guests.</p>
+                </article>
+            </div>
+        </section>
+
+        <section id="about" class="section about">
+            <h2>About SkillSync</h2>
+            <div class="about-layout">
+                <div class="about-main">
+                    <p>SkillSync started as a small internal system and then it slowly became a product we decided to continue working on.</p>
+                    <p>After some time we added docs, updates, and a few integrations so teams can do more of their daily workflow in one tool.</p>
+                    <p>Now different departments use it when they do not want to set up something too complicated.</p>
+                </div>
+                <aside class="about-side">
+                    <h3>Quick Facts</h3>
+                    <ul>
+                        <li>Founded: 2021</li>
+                        <li>Customers: 10,000+</li>
+                        <li>Countries: 38</li>
+                        <li>Average rollout: 5 days</li>
+                    </ul>
+                </aside>
+            </div>
+        </section>
+
+        <section id="pricing" class="section pricing">
+            <h2>Pricing</h2>
+            <p class="section-intro">Prices below are per user and can change.</p>
+            <div class="pricing-grid">
+                <article class="plan">
+                    <h3>Starter</h3>
+                    <p class="plan-price">$12<span>/user</span></p>
+                    <ul>
+                        <li>Up to 15 users</li>
+                        <li>Task boards and docs</li>
+                        <li>Email support</li>
+                    </ul>
+                    <button class="plan-button">Choose Starter</button>
+                </article>
+                <article class="plan plan-popular">
+                    <h3>Growth</h3>
+                    <p class="plan-price">$29<span>/user</span></p>
+                    <ul>
+                        <li>Unlimited users</li>
+                        <li>Automation rules</li>
+                        <li>Priority support</li>
+                    </ul>
+                    <button class="plan-button">Choose Growth</button>
+                </article>
+                <article class="plan">
+                    <h3>Enterprise</h3>
+                    <p class="plan-price">$59<span>/user</span></p>
+                    <ul>
+                        <li>Advanced permissions</li>
+                        <li>Security controls</li>
+                        <li>Dedicated manager</li>
+                    </ul>
+                    <button class="plan-button">Choose Enterprise</button>
+                </article>
+            </div>
+        </section>
+
+        <section id="testimonials" class="section testimonials">
+            <h2>What Some People Said</h2>
+            <div class="testimonial-list">
+                <blockquote class="testimonial">
+                    <p>"SkillSync made our weekly planning meetings much shorter and clearer."</p>
+                    <cite>- Jamie T., Product Lead</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"The shared docs and task boards replaced three separate tools for us."</p>
+                    <cite>- Morgan R., Operations Manager</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"Setup was fast and the team started using it on day one."</p>
+                    <cite>- Alex P., Support Director</cite>
+                </blockquote>
+                <blockquote class="testimonial">
+                    <p>"The reporting features gave leadership a much better view of capacity."</p>
+                    <cite>- Dana K., PMO</cite>
+                </blockquote>
+            </div>
+        </section>
+
+        <section id="faq" class="section faq">
+            <h2>FAQ Stuff</h2>
+            <article class="faq-item">
+                <h3>Do you offer a free trial?</h3>
+                <p>Yes. All plans include a 14-day free trial with no credit card required.</p>
+            </article>
+            <article class="faq-item">
+                <h3>Can we migrate data from another tool?</h3>
+                <p>Yes. CSV imports are supported for projects, tasks, and team members.</p>
+            </article>
+            <article class="faq-item">
+                <h3>Does SkillSync include onboarding help?</h3>
+                <p>Growth and Enterprise plans include guided onboarding sessions.</p>
+            </article>
+            <article class="faq-item">
+                <h3>Is there an annual contract?</h3>
+                <p>No contract is required, but annual billing offers a discount.</p>
+            </article>
+        </section>
+
+        <section class="section cta" id="cta">
+            <h2>Try It If You Want</h2>
+            <p>You can create an account and test it with your team and see if this setup works better for your process.</p>
+            <button class="primary-button large">Create Account</button>
+        </section>
+
+        <footer>
+            <p>&copy; 2026 SkillSync maybe all rights reserved</p>
+            <p>support@skillsync.example | +1 (555) 013-2201</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillSync Landing Page Test</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #64748b;
+            --accent: #f59e0b;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --bg: #ffffff;
+            --bg-alt: #f8fafc;
+            --border: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* Navigation */
+        .nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 0;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            text-decoration: none;
+            letter-spacing: -0.025em;
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.625rem 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-alt);
+            border-color: var(--secondary);
+        }
+
+        .btn-large {
+            padding: 1rem 2rem;
+            font-size: 1.125rem;
+        }
+
+        /* Hero */
+        .hero {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            padding: 5rem 0 4rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .hero-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+
+        .hero-content {
+            max-width: 800px;
+        }
+
+        .hero-content h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            line-height: 1.1;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin-bottom: 1.5rem;
+            color: var(--text);
+        }
+
+        .hero-content p {
+            font-size: 1.25rem;
+            color: var(--text-light);
+            max-width: 600px;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        /* Sections */
+        .section {
+            padding: 5rem 0;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+
+        .section h2 {
+            font-size: 2.25rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .section-intro {
+            font-size: 1.125rem;
+            color: var(--text-light);
+            margin-bottom: 3rem;
+            max-width: 600px;
+        }
+
+        /* Announcement */
+        .announcement {
+            background: var(--bg-alt);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin: 2rem auto;
+            max-width: 1200px;
+            border-left: 4px solid var(--accent);
+        }
+
+        .announcement h2 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .announcement p {
+            color: var(--text-light);
+            margin: 0;
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+
+        .feature-card p {
+            font-size: 0.975rem;
+            color: var(--text-light);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* About */
+        .about-layout {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        .about-main p {
+            font-size: 1.125rem;
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+            line-height: 1.7;
+        }
+
+        .about-side {
+            background: var(--bg-alt);
+            border-radius: 1rem;
+            padding: 2rem;
+            border: 1px solid var(--border);
+        }
+
+        .about-side h3 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text);
+        }
+
+        .about-side ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .about-side li {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.975rem;
+            color: var(--text-light);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .about-side li:last-child {
+            border-bottom: none;
+        }
+
+        .about-side li strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        /* Pricing */
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            align-items: start;
+        }
+
+        .plan {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            position: relative;
+            transition: all 0.2s;
+        }
+
+        .plan:hover {
+            box-shadow: var(--shadow);
+        }
+
+        .plan-popular {
+            border: 2px solid var(--primary);
+            box-shadow: var(--shadow-lg);
+            transform: scale(1.05);
+            z-index: 10;
+        }
+
+        .plan-popular::before {
+            content: "Most Popular";
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            padding: 0.25rem 1rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .plan h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .plan-price {
+            font-size: 3rem;
+            font-weight: 800;
+            color: var(--text);
+            margin: 1rem 0;
+            line-height: 1;
+        }
+
+        .plan-price span {
+            font-size: 1rem;
+            color: var(--text-light);
+            font-weight: 500;
+        }
+
+        .plan ul {
+            list-style: none;
+            margin: 2rem 0;
+            padding: 0;
+        }
+
+        .plan li {
+            padding: 0.75rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            font-size: 0.975rem;
+            color: var(--text-light);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .plan li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        .plan li:last-child {
+            border-bottom: none;
+        }
+
+        .plan-button {
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        /* Testimonials */
+        .testimonials {
+            background: var(--bg-alt);
+            margin: 0;
+            max-width: 100%;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .testimonials .section-intro,
+        .testimonials h2 {
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 1.5rem;
+        }
+
+        .testimonial-list {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            padding: 2rem 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .testimonial-list::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .testimonial-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .testimonial-list::-webkit-scrollbar-thumb {
+            background-color: var(--border);
+            border-radius: 4px;
+        }
+
+        .testimonial {
+            min-width: 350px;
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .testimonial p {
+            font-size: 1.125rem;
+            line-height: 1.6;
+            color: var(--text);
+            margin-bottom: 1.5rem;
+            font-style: italic;
+        }
+
+        .testimonial cite {
+            font-size: 0.875rem;
+            color: var(--text-light);
+            font-style: normal;
+            font-weight: 600;
+        }
+
+        /* FAQ */
+        .faq-item {
+            border-bottom: 1px solid var(--border);
+            padding: 2rem 0;
+        }
+
+        .faq-item:first-child {
+            padding-top: 0;
+        }
+
+        .faq-item h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .faq-item h3::after {
+            content: "+";
+            font-size: 1.5rem;
+            color: var(--primary);
+            transition: transform 0.2s;
+        }
+
+        .faq-item.active h3::after {
+            transform: rotate(45deg);
+        }
+
+        .faq-item p {
+            color: var(--text-light);
+            line-height: 1.7;
+            max-width: 800px;
+        }
+
+        /* CTA */
+        .cta {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            text-align: center;
+            border-radius: 1rem;
+            margin: 2rem auto;
+            max-width: 1200px;
+            padding: 4rem 2rem;
+        }
+
+        .cta h2 {
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .cta p {
+            font-size: 1.25rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+
+        .cta .btn-primary {
+            background: white;
+            color: var(--primary);
+        }
+
+        .cta .btn-primary:hover {
+            background: var(--bg-alt);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--text);
+            color: white;
+            padding: 3rem 0;
+            margin-top: 4rem;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        footer p {
+            margin: 0;
+            font-size: 0.875rem;
+            opacity: 0.8;
+        }
+
+        /* Responsive */
+        @media (max-width: 968px) {
+            .pricing-grid {
+                grid-template-columns: 1fr;
+                max-width: 400px;
+                margin: 0 auto;
+            }
+
+            .plan-popular {
+                transform: none;
+                order: -1;
+            }
+
+            .about-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: white;
+                flex-direction: column;
+                padding: 1rem;
+                border-bottom: 1px solid var(--border);
+                gap: 1rem;
+                box-shadow: var(--shadow);
+            }
+
+            .nav-links.active {
+                display: flex;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .hero {
+                padding: 3rem 0;
+            }
+
+            .hero-content h1 {
+                font-size: 2.5rem;
+            }
+
+            .section {
+                padding: 3rem 0;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .testimonial {
+                min-width: 300px;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero-cta {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .hero-cta .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav" id="top">
+        <div class="nav-container">
+            <a href="#" class="logo">SkillSync</a>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#about">About</a></li>
+                <li><a href="#pricing">Pricing</a></li>
+                <li><a href="#testimonials">Testimonials</a></li>
+                <li><a href="#faq">FAQ</a></li>
+                <li><button class="btn btn-primary">Try It</button></li>
+            </ul>
+            <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle menu">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <h1>Do Team Projects In A Better Way Maybe</h1>
+                <p>SkillSync is a software where your team can put tasks and docs and updates together so things are less all over the place than before.</p>
+                <div class="hero-cta">
+                    <button class="btn btn-primary btn-large">Start Free Trial</button>
+                    <button class="btn btn-secondary btn-large">Contact Sales</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section class="announcement">
+        <h2>Info Box</h2>
+        <p>This page has product info and some sections and details if you want to look through all of it before deciding.</p>
+    </section>
+
+    <section id="features" class="section features">
+        <h2>Features</h2>
+        <p class="section-intro">Main stuff included in the product right now.</p>
+        <div class="features-grid">
+            <article class="feature-card">
+                <h3>Task Boards</h3>
+                <p>Create tasks, assign owners, set due dates, and move work across stages.</p>
+            </article>
+            <article class="feature-card">
+                <h3>Shared Docs</h3>
+                <p>Write project notes and operating guides in a central workspace.</p>
+            </article>
+            <article class="feature-card">
+                <h3>Team Chat</h3>
+                <p>Send direct messages or channel updates with searchable history.</p>
+            </article>
+            <article class="feature-card">
+                <h3>Reports</h3>
+                <p>Review progress with weekly status summaries and workload charts.</p>
+            </article>
+            <article class="feature-card">
+                <h3>Automations</h3>
+                <p>Set basic rules for reminders, overdue alerts, and recurring tasks.</p>
+            </article>
+            <article class="feature-card">
+                <h3>Permissions</h3>
+                <p>Control workspace access for employees, contractors, and guests.</p>
+            </article>
+        </div>
+    </section>
+
+    <section id="about" class="section about">
+        <h2>About SkillSync</h2>
+        <div class="about-layout">
+            <div class="about-main">
+                <p>SkillSync started as a small internal system and then it slowly became a product we decided to continue working on.</p>
+                <p>After some time we added docs, updates, and a few integrations so teams can do more of their daily workflow in one tool.</p>
+                <p>Now different departments use it when they do not want to set up something too complicated.</p>
+            </div>
+            <aside class="about-side">
+                <h3>Quick Facts</h3>
+                <ul>
+                    <li><span>Founded</span> <strong>2021</strong></li>
+                    <li><span>Customers</span> <strong>10,000+</strong></li>
+                    <li><span>Countries</span> <strong>38</strong></li>
+                    <li><span>Average rollout</span> <strong>5 days</strong></li>
+                </ul>
+            </aside>
+        </div>
+    </section>
+
+    <section id="pricing" class="section pricing">
+        <h2>Pricing</h2>
+        <p class="section-intro">Prices below are per user and can change.</p>
+        <div class="pricing-grid">
+            <article class="plan">
+                <h3>Starter</h3>
+                <p class="plan-price">$12<span>/user</span></p>
+                <ul>
+                    <li>Up to 15 users</li>
+                    <li>Task boards and docs</li>
+                    <li>Email support</li>
+                </ul>
+                <button class="btn btn-secondary plan-button">Choose Starter</button>
+            </article>
+            <article class="plan plan-popular">
+                <h3>Growth</h3>
+                <p class="plan-price">$29<span>/user</span></p>
+                <ul>
+                    <li>Unlimited users</li>
+                    <li>Automation rules</li>
+                    <li>Priority support</li>
+                </ul>
+                <button class="btn btn-primary plan-button">Choose Growth</button>
+            </article>
+            <article class="plan">
+                <h3>Enterprise</h3>
+                <p class="plan-price">$59<span>/user</span></p>
+                <ul>
+                    <li>Advanced permissions</li>
+                    <li>Security controls</li>
+                    <li>Dedicated manager</li>
+                </ul>
+                <button class="btn btn-secondary plan-button">Choose Enterprise</button>
+            </article>
+        </div>
+    </section>
+
+    <section id="testimonials" class="section testimonials">
+        <h2>What Some People Said</h2>
+        <div class="testimonial-list">
+            <blockquote class="testimonial">
+                <p>"SkillSync made our weekly planning meetings much shorter and clearer."</p>
+                <cite>- Jamie T., Product Lead</cite>
+            </blockquote>
+            <blockquote class="testimonial">
+                <p>"The shared docs and task boards replaced three separate tools for us."</p>
+                <cite>- Morgan R., Operations Manager</cite>
+            </blockquote>
+            <blockquote class="testimonial">
+                <p>"Setup was fast and the team started using it on day one."</p>
+                <cite>- Alex P., Support Director</cite>
+            </blockquote>
+            <blockquote class="testimonial">
+                <p>"The reporting features gave leadership a much better view of capacity."</p>
+                <cite>- Dana K., PMO</cite>
+            </blockquote>
+        </div>
+    </section>
+
+    <section id="faq" class="section faq">
+        <h2>FAQ Stuff</h2>
+        <article class="faq-item">
+            <h3>Do you offer a free trial?</h3>
+            <p>Yes. All plans include a 14-day free trial with no credit card required.</p>
+        </article>
+        <article class="faq-item">
+            <h3>Can we migrate data from another tool?</h3>
+            <p>Yes. CSV imports are supported for projects, tasks, and team members.</p>
+        </article>
+        <article class="faq-item">
+            <h3>Does SkillSync include onboarding help?</h3>
+            <p>Growth and Enterprise plans include guided onboarding sessions.</p>
+        </article>
+        <article class="faq-item">
+            <h3>Is there an annual contract?</h3>
+            <p>No contract is required, but annual billing offers a discount.</p>
+        </article>
+    </section>
+
+    <section class="section cta" id="cta">
+        <h2>Try It If You Want</h2>
+        <p>You can create an account and test it with your team and see if this setup works better for your process.</p>
+        <button class="btn btn-primary btn-large">Create Account</button>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <p>&copy; 2026 SkillSync maybe all rights reserved</p>
+            <p>support@skillsync.example | +1 (555) 013-2201</p>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const navLinks = document.getElementById('navLinks');
+        
+        mobileMenuBtn.addEventListener('click', () => {
+            navLinks.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking on a link
+        document.querySelectorAll('.nav-links a').forEach(link => {
+            link.addEventListener('click', () => {
+                navLinks.classList.remove('active');
+            });
+        });
+
+        // FAQ accordion functionality
+        document.querySelectorAll('.faq-item').forEach(item => {
+            const header = item.querySelector('h3');
+            const content = item.querySelector('p');
+            
+            header.addEventListener('click', () => {
+                const isActive = item.classList.contains('active');
+                
+                // Close all others
+                document.querySelectorAll('.faq-item').forEach(otherItem => {
+                    otherItem.classList.remove('active');
+                    otherItem.querySelector('p').style.display = 'block';
+                });
+                
+                // Toggle current
+                if (!isActive) {
+                    item.classList.add('active');
+                }
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
