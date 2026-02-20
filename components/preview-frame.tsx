@@ -61,7 +61,7 @@ export function PreviewFrame({
 
       {!loading && !errorMessage && html ? (
         <>
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2 py-1 text-xs shadow-sm backdrop-blur">
+          <div className="absolute right-3 bottom-3 z-10 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2 py-1 text-xs shadow-sm backdrop-blur">
             <label htmlFor="preview-zoom" className="text-muted-foreground">
               Zoom
             </label>

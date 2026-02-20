@@ -41,6 +41,8 @@ describe("PreviewFrame", () => {
     const slider = screen.getByLabelText("Preview zoom") as HTMLInputElement;
     expect(slider.value).toBe("85");
     expect(screen.getByText("85%")).toBeInTheDocument();
+    expect(slider.closest("div")?.className).toContain("bottom-3");
+    expect(slider.closest("div")?.className).toContain("right-3");
 
     fireEvent.change(slider, { target: { value: "70" } });
     expect(screen.getByText("70%")).toBeInTheDocument();
