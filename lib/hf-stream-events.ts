@@ -1,4 +1,4 @@
-import type { HfGenerationAttempt } from "@/lib/hf-generation";
+import type { GenerationAttempt } from "@/lib/generation-types";
 
 export type HfGenerationStreamEventName =
   | "meta"
@@ -35,7 +35,7 @@ export interface HfGenerationStreamLogPayload {
 export interface HfGenerationStreamResultPayload {
   modelId: string;
   label: string;
-  provider: "huggingface";
+  provider: string;
   vendor: string;
   html: string;
 }
@@ -45,11 +45,11 @@ export interface HfGenerationStreamCompletePayload {
   generation: {
     usedModel: string;
     usedProvider: string;
-    attempts: HfGenerationAttempt[];
+    attempts: GenerationAttempt[];
   };
 }
 
 export interface HfGenerationStreamErrorPayload {
   message: string;
-  attempts: HfGenerationAttempt[];
+  attempts: GenerationAttempt[];
 }

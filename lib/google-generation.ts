@@ -1,0 +1,221 @@
+import { extractHtmlDocument } from "@/lib/hf-generation";
+import {
+  buildUserPrompt,
+  GenerationAttempt,
+  GenerationError,
+  GenerationResult,
+  StreamingCallbacks,
+  SYSTEM_PROMPT,
+} from "@/lib/generation-types";
+
+interface GenerateWithGoogleInput {
+  apiKey: string;
+  modelId: string;
+  prompt: string;
+  baselineHtml: string;
+}
+
+interface GenerateWithGoogleStreamedInput extends GenerateWithGoogleInput, StreamingCallbacks {}
+
+const DEFAULT_GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com";
+const DEFAULT_TIMEOUT_MS = 600_000;
+const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+
+function resolveGoogleMaxOutputTokens(rawMaxTokens: string | undefined): number {
+  const parsed = Number.parseInt(rawMaxTokens ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 256) {
+    return Math.min(parsed, DEFAULT_MAX_OUTPUT_TOKENS);
+  }
+
+  return DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+function safeParseJson(rawBody: string): unknown {
+  if (!rawBody.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawBody) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function extractGoogleText(payload: unknown): string {
+  const maybePayload = payload as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+        }>;
+      };
+    }>;
+  };
+
+  if (!Array.isArray(maybePayload.candidates) || maybePayload.candidates.length === 0) {
+    return "";
+  }
+
+  const firstCandidate = maybePayload.candidates[0];
+  if (!Array.isArray(firstCandidate.content?.parts)) {
+    return "";
+  }
+
+  return firstCandidate.content.parts
+    .map((part) => (typeof part.text === "string" ? part.text : ""))
+    .join("\n")
+    .trim();
+}
+
+function extractGoogleError(payload: unknown): string | null {
+  const maybePayload = payload as {
+    error?: {
+      message?: unknown;
+      status?: unknown;
+    };
+  };
+
+  if (typeof maybePayload.error?.message === "string" && maybePayload.error.message.trim()) {
+    return maybePayload.error.message.trim();
+  }
+
+  if (typeof maybePayload.error?.status === "string" && maybePayload.error.status.trim()) {
+    return maybePayload.error.status.trim();
+  }
+
+  return null;
+}
+
+function buildGoogleUrl(modelId: string, apiKey: string): string {
+  const baseUrl = process.env.GOOGLE_BASE_URL?.trim() || DEFAULT_GOOGLE_BASE_URL;
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  return `${normalizedBase}/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
+async function requestGoogle({
+  apiKey,
+  modelId,
+  prompt,
+  baselineHtml,
+}: GenerateWithGoogleInput): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(buildGoogleUrl(modelId, apiKey), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: SYSTEM_PROMPT }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: buildUserPrompt(prompt, baselineHtml) }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: resolveGoogleMaxOutputTokens(process.env.GENERATION_MAX_TOKENS),
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    const rawBody = (await response.text()) || "";
+    const payload = safeParseJson(rawBody);
+
+    if (!response.ok) {
+      throw new GenerationError(
+        extractGoogleError(payload) || `Google request failed (${response.status}).`,
+        response.status,
+      );
+    }
+
+    const text = extractGoogleText(payload);
+    if (!text) {
+      throw new GenerationError("Google returned empty output.", 422);
+    }
+
+    return extractHtmlDocument(text);
+  } catch (error) {
+    if (error instanceof GenerationError) {
+      throw error;
+    }
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new GenerationError("Google request timed out.", 504);
+    }
+
+    throw new GenerationError("Unable to generate output from Google.", 502);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function generateHtmlWithGoogle(
+  input: GenerateWithGoogleInput,
+): Promise<GenerationResult> {
+  const attempts: GenerationAttempt[] = [];
+  const startedAt = Date.now();
+
+  try {
+    const html = await requestGoogle(input);
+
+    attempts.push({
+      model: input.modelId,
+      provider: "google",
+      status: "success",
+      retryable: false,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return {
+      html,
+      usedModel: input.modelId,
+      usedProvider: "google",
+      attempts,
+    };
+  } catch (error) {
+    const status = error instanceof GenerationError ? error.status : 502;
+    const message =
+      error instanceof GenerationError ? error.message : "Unable to generate output from Google.";
+
+    attempts.push({
+      model: input.modelId,
+      provider: "google",
+      status: "error",
+      statusCode: status,
+      retryable: false,
+      durationMs: Date.now() - startedAt,
+      detail: message,
+    });
+
+    throw new GenerationError(message, status, attempts);
+  }
+}
+
+export async function generateHtmlWithGoogleStreamed({
+  onAttempt,
+  onToken,
+  onLog,
+  ...input
+}: GenerateWithGoogleStreamedInput): Promise<GenerationResult> {
+  await onAttempt?.({
+    attemptNumber: 1,
+    totalAttempts: 1,
+    model: input.modelId,
+    provider: "google",
+    resetCode: false,
+  });
+  await onLog?.("Starting Google generation.");
+
+  const result = await generateHtmlWithGoogle(input);
+  await onToken?.(result.html);
+
+  return result;
+}

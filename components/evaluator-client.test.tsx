@@ -5,9 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const replaceMock = vi.fn();
 
 type GenerateRequestBody = {
+  provider: "huggingface" | "openai" | "anthropic" | "google";
   hfApiKey?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
   modelId: string;
-  providers?: string[];
+  providerCandidates?: string[];
   billTo?: string;
   skillContent?: string;
   taskId?: string;
@@ -96,12 +100,17 @@ function encodeSseEvent(event: string, payload: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
-function buildSuccessStream(modelId: string, html: string, streamedText = html): Response {
-  const provider = "auto";
+function buildSuccessStream(
+  modelId: string,
+  html: string,
+  streamedText = html,
+  provider: GenerateRequestBody["provider"] = "huggingface",
+): Response {
+  const usedProvider = provider === "huggingface" ? "auto" : provider;
   const resolvedAttempts = [
     {
       model: modelId,
-      provider,
+      provider: usedProvider,
       status: "success" as const,
       retryable: false,
       durationMs: 900,
@@ -110,14 +119,14 @@ function buildSuccessStream(modelId: string, html: string, streamedText = html):
   const events = [
     encodeSseEvent("meta", {
       modelId,
-      provider,
+      provider: usedProvider,
       plannedAttempts: 1,
     }),
     encodeSseEvent("attempt", {
       attemptNumber: 1,
       totalAttempts: 1,
       model: modelId,
-      provider,
+      provider: usedProvider,
       resetCode: false,
     }),
     encodeSseEvent("token", { text: streamedText.slice(0, Math.ceil(streamedText.length / 2)) }),
@@ -126,13 +135,13 @@ function buildSuccessStream(modelId: string, html: string, streamedText = html):
       result: {
         modelId,
         label: modelId.split("/").at(-1) ?? modelId,
-        provider: "huggingface",
+        provider,
         vendor: modelId.split("/")[0] ?? "unknown",
         html,
       },
       generation: {
         usedModel: modelId,
-        usedProvider: provider,
+        usedProvider,
         attempts: resolvedAttempts,
       },
     }),
@@ -159,14 +168,15 @@ function buildErrorStream(
   modelId: string,
   message: string,
   attempts: Extract<StreamBehavior, { kind: "error" }>["attempts"],
+  provider: GenerateRequestBody["provider"] = "huggingface",
 ): Response {
-  const provider = "auto";
+  const usedProvider = provider === "huggingface" ? "auto" : provider;
   const resolvedAttempts =
     attempts ??
     [
       {
         model: modelId,
-        provider,
+        provider: usedProvider,
         status: "error" as const,
         statusCode: 504,
         retryable: false,
@@ -178,14 +188,14 @@ function buildErrorStream(
   const events = [
     encodeSseEvent("meta", {
       modelId,
-      provider,
+      provider: usedProvider,
       plannedAttempts: 1,
     }),
     encodeSseEvent("attempt", {
       attemptNumber: 1,
       totalAttempts: 1,
       model: modelId,
-      provider,
+      provider: usedProvider,
       resetCode: false,
     }),
     encodeSseEvent("error", {
@@ -320,7 +330,7 @@ function installFetchMock() {
         });
       }
 
-      if (pathname === "/api/generate/hf/stream" && method === "POST") {
+      if (pathname === "/api/generate/stream" && method === "POST") {
         const body = JSON.parse(String(init?.body)) as GenerateRequestBody;
         generateRequests.push(body);
 
@@ -339,10 +349,10 @@ function installFetchMock() {
         }
 
         if (behavior.kind === "error") {
-          return buildErrorStream(body.modelId, behavior.message, behavior.attempts);
+          return buildErrorStream(body.modelId, behavior.message, behavior.attempts, body.provider);
         }
 
-        return buildSuccessStream(body.modelId, behavior.html, behavior.streamedText);
+        return buildSuccessStream(body.modelId, behavior.html, behavior.streamedText, body.provider);
       }
 
       return new Response(JSON.stringify({ error: "not found" }), {
@@ -375,6 +385,18 @@ async function saveSkillContent(content: string) {
   await user.clear(textarea);
   await user.type(textarea, content);
   await user.click(screen.getByRole("button", { name: "Save Skill" }));
+}
+
+async function addPresetProviderModel(provider: "openai" | "anthropic" | "google", modelId: string) {
+  const providerLabel =
+    provider === "openai" ? "OpenAI" : provider === "anthropic" ? "Anthropic" : "Google";
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("Generation provider"), provider);
+  await user.selectOptions(
+    screen.getByLabelText(`${providerLabel} model presets`),
+    modelId,
+  );
+  await user.click(screen.getByRole("button", { name: "Add Preset Model" }));
 }
 
 describe("EvaluatorClient", () => {
@@ -556,8 +578,9 @@ describe("EvaluatorClient", () => {
     expect(generateRequests).toHaveLength(1);
     expect(generateRequests[0]).toMatchObject({
       modelId: "moonshotai/Kimi-K2.5",
+      provider: "huggingface",
       hfApiKey: "hf_manual_key",
-      providers: ["novita", "hf-inference"],
+      providerCandidates: ["novita", "hf-inference"],
       skillContent: "Use magazine-style typography and dramatic spacing.",
     });
   });
@@ -590,7 +613,8 @@ describe("EvaluatorClient", () => {
     expect(generateRequests).toHaveLength(1);
     expect(generateRequests[0]).toMatchObject({
       modelId: "moonshotai/Kimi-K2.5",
-      providers: ["novita", "hf-inference"],
+      provider: "huggingface",
+      providerCandidates: ["novita", "hf-inference"],
       taskId: "multistep_form",
       taskContext: {
         formVariant: "saas_onboarding",
@@ -849,7 +873,8 @@ describe("EvaluatorClient", () => {
     expect(generateRequests).toHaveLength(1);
     expect(generateRequests[0]).toMatchObject({
       modelId: "moonshotai/Kimi-K2.5",
-      providers: ["novita", "hf-inference"],
+      provider: "huggingface",
+      providerCandidates: ["novita", "hf-inference"],
     });
     expect(generateRequests[0]).not.toHaveProperty("hfApiKey");
   });
@@ -891,6 +916,59 @@ describe("EvaluatorClient", () => {
     expect(generateRequests[1]).toMatchObject({
       modelId: "moonshotai/Kimi-K2.5",
       hfApiKey: "hf_manual_key",
+    });
+  });
+
+  it("requires OpenAI key when generating with OpenAI provider", async () => {
+    streamBehaviors["gpt-4.1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>OpenAI output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addPresetProviderModel("openai", "gpt-4.1");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Add your OpenAI API key to run generation.")).toBeInTheDocument();
+    });
+  });
+
+  it("sends OpenAI key in provider-specific generation payload", async () => {
+    streamBehaviors["gpt-4.1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>OpenAI output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addPresetProviderModel("openai", "gpt-4.1");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-openai-test");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests[0]).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-4.1",
+      openaiApiKey: "sk-openai-test",
     });
   });
 });

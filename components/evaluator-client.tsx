@@ -27,6 +27,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { MAX_SKILL_CONTENT_CHARS } from "@/lib/prompt";
 import {
+  getProviderLabel,
+  isProviderId,
+  PROVIDER_MODEL_PRESETS,
+  PROVIDER_OPTIONS,
+  type ProviderId,
+} from "@/lib/providers";
+import {
   buildTaskPrompt,
   DEFAULT_TASK_ID,
   getImageToCodeReference,
@@ -56,6 +63,11 @@ const OAUTH_SECRET_MISCONFIGURED_MESSAGE =
   "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET (recommended) or ensure OAuth client secret env vars are available, then redeploy.";
 const OAUTH_SESSION_NOT_PERSISTED_MESSAGE =
   "Hugging Face OAuth completed, but no active OAuth session is available. If you are in the embedded Spaces page, open the direct `*.hf.space` URL and reconnect.";
+const PROVIDER_KEY_REQUIRED_MESSAGE: Record<Exclude<ProviderId, "huggingface">, string> = {
+  openai: "Add your OpenAI API key to run generation.",
+  anthropic: "Add your Anthropic API key to run generation.",
+  google: "Add your Google API key to run generation.",
+};
 const TASK_OPTIONS = listTaskOptions();
 const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
 const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "figma_landing";
@@ -117,7 +129,7 @@ interface SessionModel {
   modelId: string;
   label: string;
   vendor: string;
-  provider: string;
+  provider: ProviderId | "reference";
   sourceType: "baseline" | "model";
   providers: string[];
   status: SessionModelStatus;
@@ -137,6 +149,7 @@ type TaskModelMap = Record<TaskId, SessionModel[]>;
 type TaskStringMap = Record<TaskId, string>;
 type TaskNullableStringMap = Record<TaskId, string | null>;
 type TaskBooleanMap = Record<TaskId, boolean>;
+type TaskProviderMap = Record<TaskId, ProviderId>;
 
 function escapeHtml(value: string): string {
   return value
@@ -454,6 +467,9 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const pathname = usePathname();
 
   const [activeTaskId, setActiveTaskId] = useState<TaskId>(DEFAULT_TASK_ID);
+  const [activeProviderByTask, setActiveProviderByTask] = useState<TaskProviderMap>(() =>
+    buildTaskMap(() => "huggingface"),
+  );
   const [sessionModelsByTask, setSessionModelsByTask] = useState<TaskModelMap>(() =>
     buildInitialTaskModels(),
   );
@@ -472,6 +488,9 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [providerPresetByTask, setProviderPresetByTask] = useState<TaskNullableStringMap>(() =>
+    buildTaskMap(() => null),
+  );
   const [skillContentByTask, setSkillContentByTask] = useState<TaskStringMap>(() =>
     buildTaskMap(() => ""),
   );
@@ -483,6 +502,9 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const [clientOrigin, setClientOrigin] = useState("http://localhost");
 
   const [hfApiKey, setHfApiKey] = useState("");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [googleApiKey, setGoogleApiKey] = useState("");
   const [generationBillTo, setGenerationBillTo] = useState("");
   const [generationLoading, setGenerationLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<string | null>(null);
@@ -505,9 +527,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const [activeMainTab, setActiveMainTab] = useState<MainPanelTab>("app");
 
   const sessionModels = sessionModelsByTask[activeTaskId];
+  const activeProvider = activeProviderByTask[activeTaskId];
   const selectedModelId = selectedModelIdByTask[activeTaskId];
   const baselineLoading = baselineLoadingByTask[activeTaskId];
   const baselineError = baselineErrorByTask[activeTaskId];
+  const providerPreset = providerPresetByTask[activeTaskId];
   const skillContent = skillContentByTask[activeTaskId];
   const activeTaskDefinition = getTaskDefinition(activeTaskId);
   const selectedImageReference = useMemo(
@@ -541,6 +565,13 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     () => buildTaskPrompt(activeTaskId, activeTaskContext),
     [activeTaskContext, activeTaskId],
   );
+  const activeProviderPresets = useMemo(() => {
+    if (activeProvider === "huggingface") {
+      return [];
+    }
+
+    return PROVIDER_MODEL_PRESETS[activeProvider];
+  }, [activeProvider]);
 
   const selectedModels = useMemo(
     () => sessionModels.filter((model) => model.sourceType === "model"),
@@ -603,6 +634,16 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const setActiveSkillContent = useCallback(
     (value: string) => {
       setSkillContentByTask((previous) => ({
+        ...previous,
+        [activeTaskId]: value,
+      }));
+    },
+    [activeTaskId],
+  );
+
+  const setActiveProviderPreset = useCallback(
+    (value: string | null) => {
+      setProviderPresetByTask((previous) => ({
         ...previous,
         [activeTaskId]: value,
       }));
@@ -865,6 +906,13 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   }, [patchTaskSessionModel]);
 
   useEffect(() => {
+    if (activeProvider !== "huggingface") {
+      setSearchResults([]);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
+    }
+
     const trimmedQuery = searchQuery.trim();
     if (trimmedQuery.length < 2) {
       setSearchResults([]);
@@ -914,10 +962,17 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [searchQuery]);
+  }, [activeProvider, searchQuery]);
 
   const addModelToSelection = useCallback(
-    (result: SearchModelResult) => {
+    (
+      result: SearchModelResult | {
+        modelId: string;
+        label: string;
+        vendor: string;
+        providers: string[];
+      },
+    ) => {
       if (sessionModels.some((model) => model.modelId === result.modelId)) {
         setSelectionNotice(`${result.modelId} is already selected.`);
         return;
@@ -934,7 +989,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
           modelId: result.modelId,
           label: result.label,
           vendor: result.vendor,
-          provider: "huggingface",
+          provider: activeProvider,
           sourceType: "model",
           providers: result.providers,
           status: "queued",
@@ -948,8 +1003,45 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       setSelectionNotice(null);
       setSearchQuery("");
       setSearchResults([]);
+      setActiveProviderPreset(null);
     },
-    [selectedModels.length, sessionModels, setActiveSessionModels],
+    [
+      activeProvider,
+      selectedModels.length,
+      sessionModels,
+      setActiveProviderPreset,
+      setActiveSessionModels,
+    ],
+  );
+
+  const handleProviderChange = useCallback(
+    (provider: ProviderId) => {
+      if (generationLoading) {
+        return;
+      }
+
+      setActiveProviderByTask((previous) => ({
+        ...previous,
+        [activeTaskId]: provider,
+      }));
+      setActiveProviderPreset(null);
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchError(null);
+      setSelectionNotice(null);
+
+      setTaskSessionModels(activeTaskId, (previous) =>
+        previous.filter((model) => model.sourceType === "baseline"),
+      );
+      setActiveSelectedModelId(BASELINE_MODEL_ID);
+    },
+    [
+      activeTaskId,
+      generationLoading,
+      setActiveProviderPreset,
+      setActiveSelectedModelId,
+      setTaskSessionModels,
+    ],
   );
 
   const removeSelectedModel = useCallback(
@@ -1080,7 +1172,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     setGenerationSuccess(null);
     setActiveCodeFile("index.html");
 
-    const apiKey = hfApiKey.trim();
+    const generationProvider = activeProvider;
+    const hfKey = hfApiKey.trim();
+    const openaiKey = openaiApiKey.trim();
+    const anthropicKey = anthropicApiKey.trim();
+    const googleKey = googleApiKey.trim();
     const billTo = generationBillTo.trim();
     const normalizedSkill = skillContent.trim();
     const generationTaskId = activeTaskId;
@@ -1091,15 +1187,29 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       return;
     }
 
-    if (!apiKey) {
-      const oauthSnapshot = await loadOAuthState();
-      const oauthAvailable = Boolean(oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId);
-      if (!oauthSnapshot.connected) {
-        setGenerationError(
-          oauthAvailable
-            ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
-            : "Add your Hugging Face API key to run generation.",
+    if (generationProvider === "huggingface") {
+      if (!hfKey) {
+        const oauthSnapshot = await loadOAuthState();
+        const oauthAvailable = Boolean(
+          oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId,
         );
+        if (!oauthSnapshot.connected) {
+          setGenerationError(
+            oauthAvailable
+              ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
+              : "Add your Hugging Face API key to run generation.",
+          );
+          return;
+        }
+      }
+    } else {
+      const hasProviderKey =
+        (generationProvider === "openai" && Boolean(openaiKey)) ||
+        (generationProvider === "anthropic" && Boolean(anthropicKey)) ||
+        (generationProvider === "google" && Boolean(googleKey));
+
+      if (!hasProviderKey) {
+        setGenerationError(PROVIDER_KEY_REQUIRED_MESSAGE[generationProvider]);
         return;
       }
     }
@@ -1152,29 +1262,48 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
         try {
           const body: {
+            provider: ProviderId;
             hfApiKey?: string;
+            openaiApiKey?: string;
+            anthropicApiKey?: string;
+            googleApiKey?: string;
             modelId: string;
-            providers?: string[];
+            providerCandidates?: string[];
             billTo?: string;
             skillContent?: string;
             taskId: TaskId;
             taskContext: TaskContext;
           } = {
+            provider: generationProvider,
             modelId: model.modelId,
             taskId: generationTaskId,
             taskContext: generationTaskContext,
           };
 
-          if (apiKey) {
-            body.hfApiKey = apiKey;
+          if (generationProvider === "huggingface" && hfKey) {
+            body.hfApiKey = hfKey;
           }
 
-          const providers = normalizeProviderCandidates(model.providers);
-          if (providers.length > 0) {
-            body.providers = providers;
+          if (generationProvider === "openai" && openaiKey) {
+            body.openaiApiKey = openaiKey;
           }
 
-          if (billTo) {
+          if (generationProvider === "anthropic" && anthropicKey) {
+            body.anthropicApiKey = anthropicKey;
+          }
+
+          if (generationProvider === "google" && googleKey) {
+            body.googleApiKey = googleKey;
+          }
+
+          if (generationProvider === "huggingface") {
+            const providers = normalizeProviderCandidates(model.providers);
+            if (providers.length > 0) {
+              body.providerCandidates = providers;
+            }
+          }
+
+          if (generationProvider === "huggingface" && billTo) {
             body.billTo = billTo;
           }
 
@@ -1182,7 +1311,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
             body.skillContent = normalizedSkill;
           }
 
-          const response = await fetch("/api/generate/hf/stream", {
+          const response = await fetch("/api/generate/stream", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1392,12 +1521,16 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       setGenerationStatus(null);
     }
   }, [
+    activeProvider,
     activeTaskContext,
     activeTaskId,
     appendTaskModelLog,
+    anthropicApiKey,
     generationBillTo,
+    googleApiKey,
     hfApiKey,
     loadOAuthState,
+    openaiApiKey,
     patchTaskSessionModel,
     setActiveSelectedModelId,
     setActiveSessionModels,
@@ -1425,6 +1558,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       return;
     }
 
+    if (activeProvider !== "huggingface") {
+      setIsGenerateModalOpen(true);
+      return;
+    }
+
     if (oauthStatusLoading) {
       const snapshot = await loadOAuthState();
       if (snapshot.connected) {
@@ -1443,6 +1581,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
     setIsGenerateModalOpen(true);
   }, [
+    activeProvider,
     generationLoading,
     loadOAuthState,
     oauthConnected,
@@ -1453,6 +1592,10 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
   const handleSearchInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (activeProvider !== "huggingface") {
+        return;
+      }
+
       if (event.key !== "Enter") {
         return;
       }
@@ -1464,7 +1607,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       event.preventDefault();
       addModelToSelection(searchResults[0]);
     },
-    [addModelToSelection, searchResults],
+    [activeProvider, addModelToSelection, searchResults],
   );
 
   const previewHtml = selectedModel.finalHtml;
@@ -1491,7 +1634,24 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
   const canOpenGenerateModal = selectedModels.length > 0;
   const oauthAvailable = Boolean(oauthConfig?.enabled && oauthConfig.clientId);
-  const showOAuthControls = oauthStatusLoading || oauthAvailable;
+  const showOAuthControls =
+    activeProvider === "huggingface" && (oauthStatusLoading || oauthAvailable);
+  const providerApiKeyPlaceholder =
+    activeProvider === "openai"
+      ? "sk-..."
+      : activeProvider === "anthropic"
+        ? "sk-ant-..."
+        : "AIza...";
+  const providerApiKeyValue =
+    activeProvider === "openai"
+      ? openaiApiKey
+      : activeProvider === "anthropic"
+        ? anthropicApiKey
+        : googleApiKey;
+  const selectedProviderPresetModel =
+    activeProvider === "huggingface"
+      ? null
+      : activeProviderPresets.find((preset) => preset.modelId === providerPreset) ?? null;
 
   return (
     <>
@@ -1584,49 +1744,125 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
           <Card className="gap-3 py-3">
             <CardHeader className="px-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Search Models</CardTitle>
+                <CardTitle className="text-sm">Models & Provider</CardTitle>
                 <Badge variant="outline">Max {MAX_SELECTED_MODELS}</Badge>
               </div>
               <CardDescription className="text-xs">
-                Search Hugging Face inference-provider models and add up to {MAX_SELECTED_MODELS}.
+                Choose a provider, then add up to {MAX_SELECTED_MODELS} models for this task.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-3">
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                onKeyDown={handleSearchInputKeyDown}
-                placeholder="Search models on HF..."
-                aria-label="Search Hugging Face models"
-                disabled={generationLoading}
-              />
+              <div className="space-y-1">
+                <label htmlFor="provider-select" className="text-xs font-medium text-muted-foreground">
+                  Provider
+                </label>
+                <select
+                  id="provider-select"
+                  aria-label="Generation provider"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                  value={activeProvider}
+                  disabled={generationLoading}
+                  onChange={(event) => {
+                    if (isProviderId(event.target.value)) {
+                      handleProviderChange(event.target.value);
+                    }
+                  }}
+                >
+                  {PROVIDER_OPTIONS.map((providerOption) => (
+                    <option key={providerOption.id} value={providerOption.id}>
+                      {providerOption.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              {searchLoading ? (
-                <p className="text-xs text-muted-foreground">Searching models...</p>
-              ) : null}
+              {activeProvider === "huggingface" ? (
+                <>
+                  <Input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={handleSearchInputKeyDown}
+                    placeholder="Search models on HF..."
+                    aria-label="Search Hugging Face models"
+                    disabled={generationLoading}
+                  />
 
-              {searchError ? <p className="text-xs text-destructive">{searchError}</p> : null}
+                  {searchLoading ? (
+                    <p className="text-xs text-muted-foreground">Searching models...</p>
+                  ) : null}
 
-              {!searchLoading && searchQuery.trim().length >= 2 ? (
-                searchResults.length > 0 ? (
-                  <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-border p-2">
-                    {searchResults.map((result) => (
-                      <button
-                        key={result.modelId}
-                        type="button"
-                        onClick={() => addModelToSelection(result)}
-                        disabled={generationLoading}
-                        className="w-full rounded-md border border-border bg-background px-2.5 py-2 text-left transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <p className="truncate text-sm font-medium">{result.label}</p>
-                        <p className="truncate text-xs text-muted-foreground">{result.modelId}</p>
-                      </button>
+                  {searchError ? <p className="text-xs text-destructive">{searchError}</p> : null}
+
+                  {!searchLoading && searchQuery.trim().length >= 2 ? (
+                    searchResults.length > 0 ? (
+                      <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-border p-2">
+                        {searchResults.map((result) => (
+                          <button
+                            key={result.modelId}
+                            type="button"
+                            onClick={() => addModelToSelection(result)}
+                            disabled={generationLoading}
+                            className="w-full rounded-md border border-border bg-background px-2.5 py-2 text-left transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <p className="truncate text-sm font-medium">{result.label}</p>
+                            <p className="truncate text-xs text-muted-foreground">{result.modelId}</p>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No matching inference-provider models found.
+                      </p>
+                    )
+                  ) : null}
+                </>
+              ) : (
+                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
+                  <label
+                    htmlFor="provider-model-preset-select"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    {getProviderLabel(activeProvider)} model presets
+                  </label>
+                  <select
+                    id="provider-model-preset-select"
+                    aria-label={`${getProviderLabel(activeProvider)} model presets`}
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    value={providerPreset ?? ""}
+                    disabled={generationLoading}
+                    onChange={(event) =>
+                      setActiveProviderPreset(event.target.value || null)
+                    }
+                  >
+                    <option value="">Select a model preset</option>
+                    {activeProviderPresets.map((preset) => (
+                      <option key={preset.modelId} value={preset.modelId}>
+                        {preset.label}
+                      </option>
                     ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No matching inference-provider models found.</p>
-                )
-              ) : null}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={generationLoading || !selectedProviderPresetModel}
+                    onClick={() => {
+                      if (!selectedProviderPresetModel) {
+                        return;
+                      }
+
+                      addModelToSelection({
+                        modelId: selectedProviderPresetModel.modelId,
+                        label: selectedProviderPresetModel.label,
+                        vendor: selectedProviderPresetModel.vendor,
+                        providers: [],
+                      });
+                    }}
+                  >
+                    Add Preset Model
+                  </Button>
+                </div>
+              )}
 
               {selectionNotice ? (
                 <p className="text-xs text-muted-foreground">{selectionNotice}</p>
@@ -1955,7 +2191,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                     Generate Session Outputs
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Generate all selected models in sequence. Outputs are stored only in memory for this session.
+                    Generate all selected {getProviderLabel(activeProvider)} models in sequence. Outputs are stored only in memory for this session.
                   </CardDescription>
                 </div>
                 <Button
@@ -2019,17 +2255,40 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-muted-foreground">
-                    API Key
+                    {getProviderLabel(activeProvider)} API Key
                     <span className="ml-1 text-muted-foreground/50">
-                      {oauthAvailable ? "optional when OAuth is connected" : "required"}
+                      {activeProvider === "huggingface" && oauthAvailable
+                        ? "optional when OAuth is connected"
+                        : "required"}
                     </span>
                   </label>
                   <div className="flex items-center gap-2">
                     <Input
                       type="password"
-                      value={hfApiKey}
-                      onChange={(event) => setHfApiKey(event.target.value)}
-                      placeholder="hf_..."
+                      value={activeProvider === "huggingface" ? hfApiKey : providerApiKeyValue}
+                      onChange={(event) => {
+                        if (activeProvider === "huggingface") {
+                          setHfApiKey(event.target.value);
+                          return;
+                        }
+
+                        if (activeProvider === "openai") {
+                          setOpenaiApiKey(event.target.value);
+                          return;
+                        }
+
+                        if (activeProvider === "anthropic") {
+                          setAnthropicApiKey(event.target.value);
+                          return;
+                        }
+
+                        setGoogleApiKey(event.target.value);
+                      }}
+                      placeholder={
+                        activeProvider === "huggingface"
+                          ? "hf_..."
+                          : providerApiKeyPlaceholder
+                      }
                       autoComplete="off"
                     />
                     <Button
@@ -2037,29 +2296,53 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                       variant="ghost"
                       size="sm"
                       className="shrink-0"
-                      onClick={() => setHfApiKey("")}
-                      disabled={generationLoading || hfApiKey.length === 0}
+                      onClick={() => {
+                        if (activeProvider === "huggingface") {
+                          setHfApiKey("");
+                          return;
+                        }
+
+                        if (activeProvider === "openai") {
+                          setOpenaiApiKey("");
+                          return;
+                        }
+
+                        if (activeProvider === "anthropic") {
+                          setAnthropicApiKey("");
+                          return;
+                        }
+
+                        setGoogleApiKey("");
+                      }}
+                      disabled={
+                        generationLoading ||
+                        (activeProvider === "huggingface"
+                          ? hfApiKey.length === 0
+                          : providerApiKeyValue.length === 0)
+                      }
                     >
                       Clear
                     </Button>
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Bill To
-                    <span className="ml-1 text-muted-foreground/50">optional</span>
-                  </label>
-                  <Input
-                    value={generationBillTo}
-                    onChange={(event) => setGenerationBillTo(event.target.value)}
-                    placeholder="huggingface"
-                    autoComplete="off"
-                  />
-                  <p className="text-[11px] leading-tight text-muted-foreground/70">
-                    Sends <code>X-HF-Bill-To</code> when provided.
-                  </p>
-                </div>
+                {activeProvider === "huggingface" ? (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Bill To
+                      <span className="ml-1 text-muted-foreground/50">optional</span>
+                    </label>
+                    <Input
+                      value={generationBillTo}
+                      onChange={(event) => setGenerationBillTo(event.target.value)}
+                      placeholder="huggingface"
+                      autoComplete="off"
+                    />
+                    <p className="text-[11px] leading-tight text-muted-foreground/70">
+                      Sends <code>X-HF-Bill-To</code> when provided.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
                   Generating {selectedModels.length} selected model

@@ -24,6 +24,10 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
   - Hugging Face model ID
   - Optional Hugging Face provider (or model suffix `:provider`)
   - Optional Hugging Face bill-to account (`X-HF-Bill-To`)
+- Generate session outputs from proprietary providers with user-supplied API keys:
+  - OpenAI
+  - Anthropic
+  - Google (Gemini)
 - Call HF Inference Providers and persist generated HTML artifacts.
 - Render artifacts inside a sandboxed iframe.
 - Stream generation tokens into a live code view before switching to app preview.
@@ -51,6 +55,10 @@ Optional:
 HF_BASE_URL=https://router.huggingface.co/v1
 GENERATION_TIMEOUT_MS=1200000
 GENERATION_MAX_TOKENS=32768
+OPENAI_BASE_URL=https://api.openai.com/v1
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_VERSION=2023-06-01
+GOOGLE_BASE_URL=https://generativelanguage.googleapis.com
 HF_SESSION_COOKIE_SECRET=
 HF_OAUTH_CLIENT_ID=
 HF_OAUTH_CLIENT_SECRET=
@@ -170,6 +178,51 @@ Manual ingestion endpoint.
 ### `POST /api/generate/hf`
 Generate and publish from Hugging Face provider model.
 
+### `POST /api/generate`
+Unified non-stream generation endpoint for:
+- `huggingface`
+- `openai`
+- `anthropic`
+- `google`
+
+Example payloads:
+
+```json
+{
+  "provider": "openai",
+  "openaiApiKey": "sk_...",
+  "modelId": "gpt-4.1"
+}
+```
+
+```json
+{
+  "provider": "anthropic",
+  "anthropicApiKey": "sk-ant-...",
+  "modelId": "claude-3-7-sonnet-latest"
+}
+```
+
+```json
+{
+  "provider": "google",
+  "googleApiKey": "AIza...",
+  "modelId": "gemini-2.5-flash"
+}
+```
+
+For Hugging Face through the unified route:
+
+```json
+{
+  "provider": "huggingface",
+  "hfApiKey": "hf_...",
+  "modelId": "moonshotai/Kimi-K2-Instruct-0905",
+  "providerCandidates": ["novita", "nebius"],
+  "billTo": "huggingface"
+}
+```
+
 Auth options:
 - Send `hfApiKey` in request body, or
 - Omit `hfApiKey` and use a valid Hugging Face OAuth session cookie.
@@ -207,6 +260,19 @@ Or pass the provider directly in the model value:
 ### `POST /api/generate/hf/stream`
 Streaming generation endpoint (`text/event-stream`) used by the dashboard UI.
 
+### `POST /api/generate/stream`
+Unified streaming generation endpoint (`text/event-stream`) used by the dashboard UI for all providers.
+
+Request payload:
+
+```json
+{
+  "provider": "openai",
+  "openaiApiKey": "sk_...",
+  "modelId": "gpt-4.1"
+}
+```
+
 Request payload:
 
 ```json
@@ -225,6 +291,8 @@ Emits events:
 - `complete`
 - `error`
 - `done`
+
+`/api/generate/hf` and `/api/generate/hf/stream` remain available for Hugging Face compatibility.
 
 ### `GET /api/auth/hf/config`
 Returns public OAuth config for the frontend:
