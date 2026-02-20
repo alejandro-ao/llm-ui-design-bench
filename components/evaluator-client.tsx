@@ -578,6 +578,36 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     [sessionModels],
   );
 
+  const selectedProviderIds = useMemo(() => {
+    const unique = new Set<ProviderId>();
+    for (const model of selectedModels) {
+      if (isProviderId(model.provider)) {
+        unique.add(model.provider);
+      }
+    }
+
+    return [...unique];
+  }, [selectedModels]);
+
+  const selectedProviderModelCounts = useMemo(() => {
+    const counts: Record<ProviderId, number> = {
+      huggingface: 0,
+      openai: 0,
+      anthropic: 0,
+      google: 0,
+    };
+
+    for (const model of selectedModels) {
+      if (isProviderId(model.provider)) {
+        counts[model.provider] += 1;
+      }
+    }
+
+    return counts;
+  }, [selectedModels]);
+
+  const hasSelectedHfModels = selectedProviderIds.includes("huggingface");
+
   const selectedModel = useMemo(
     () =>
       sessionModels.find((model) => model.modelId === selectedModelId) ??
@@ -1029,18 +1059,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       setSearchResults([]);
       setSearchError(null);
       setSelectionNotice(null);
-
-      setTaskSessionModels(activeTaskId, (previous) =>
-        previous.filter((model) => model.sourceType === "baseline"),
-      );
-      setActiveSelectedModelId(BASELINE_MODEL_ID);
     },
     [
       activeTaskId,
       generationLoading,
       setActiveProviderPreset,
-      setActiveSelectedModelId,
-      setTaskSessionModels,
     ],
   );
 
@@ -1172,7 +1195,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     setGenerationSuccess(null);
     setActiveCodeFile("index.html");
 
-    const generationProvider = activeProvider;
     const hfKey = hfApiKey.trim();
     const openaiKey = openaiApiKey.trim();
     const anthropicKey = anthropicApiKey.trim();
@@ -1187,29 +1209,41 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       return;
     }
 
-    if (generationProvider === "huggingface") {
-      if (!hfKey) {
-        const oauthSnapshot = await loadOAuthState();
-        const oauthAvailable = Boolean(
-          oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId,
-        );
-        if (!oauthSnapshot.connected) {
-          setGenerationError(
-            oauthAvailable
-              ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
-              : "Add your Hugging Face API key to run generation.",
-          );
-          return;
-        }
+    const providerIdsFromSelection: ProviderId[] = [];
+    const providerSet = new Set<ProviderId>();
+    for (const model of selectedModels) {
+      if (isProviderId(model.provider)) {
+        providerSet.add(model.provider);
       }
-    } else {
-      const hasProviderKey =
-        (generationProvider === "openai" && Boolean(openaiKey)) ||
-        (generationProvider === "anthropic" && Boolean(anthropicKey)) ||
-        (generationProvider === "google" && Boolean(googleKey));
+    }
+    providerIdsFromSelection.push(...providerSet);
 
-      if (!hasProviderKey) {
-        setGenerationError(PROVIDER_KEY_REQUIRED_MESSAGE[generationProvider]);
+    if (providerIdsFromSelection.includes("openai") && !openaiKey) {
+      setGenerationError(PROVIDER_KEY_REQUIRED_MESSAGE.openai);
+      return;
+    }
+
+    if (providerIdsFromSelection.includes("anthropic") && !anthropicKey) {
+      setGenerationError(PROVIDER_KEY_REQUIRED_MESSAGE.anthropic);
+      return;
+    }
+
+    if (providerIdsFromSelection.includes("google") && !googleKey) {
+      setGenerationError(PROVIDER_KEY_REQUIRED_MESSAGE.google);
+      return;
+    }
+
+    if (providerIdsFromSelection.includes("huggingface") && !hfKey) {
+      const oauthSnapshot = await loadOAuthState();
+      const oauthIsAvailable = Boolean(
+        oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId,
+      );
+      if (!oauthSnapshot.connected) {
+        setGenerationError(
+          oauthIsAvailable
+            ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
+            : "Add your Hugging Face API key to run generation.",
+        );
         return;
       }
     }
@@ -1243,8 +1277,15 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
     try {
       for (const [index, model] of selectedModels.entries()) {
+        if (!isProviderId(model.provider)) {
+          continue;
+        }
+
+        const modelProvider = model.provider;
         const queuePosition = `${index + 1}/${selectedModels.length}`;
-        setGenerationStatus(`Generating ${model.label} (${queuePosition})...`);
+        setGenerationStatus(
+          `Generating ${model.label} (${getProviderLabel(modelProvider)} • ${queuePosition})...`,
+        );
         setActiveGeneratingModelId(model.modelId);
         setActiveSelectedModelId(model.modelId);
         setActiveMainTab("code");
@@ -1274,36 +1315,36 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
             taskId: TaskId;
             taskContext: TaskContext;
           } = {
-            provider: generationProvider,
+            provider: modelProvider,
             modelId: model.modelId,
             taskId: generationTaskId,
             taskContext: generationTaskContext,
           };
 
-          if (generationProvider === "huggingface" && hfKey) {
+          if (modelProvider === "huggingface" && hfKey) {
             body.hfApiKey = hfKey;
           }
 
-          if (generationProvider === "openai" && openaiKey) {
+          if (modelProvider === "openai" && openaiKey) {
             body.openaiApiKey = openaiKey;
           }
 
-          if (generationProvider === "anthropic" && anthropicKey) {
+          if (modelProvider === "anthropic" && anthropicKey) {
             body.anthropicApiKey = anthropicKey;
           }
 
-          if (generationProvider === "google" && googleKey) {
+          if (modelProvider === "google" && googleKey) {
             body.googleApiKey = googleKey;
           }
 
-          if (generationProvider === "huggingface") {
+          if (modelProvider === "huggingface") {
             const providers = normalizeProviderCandidates(model.providers);
             if (providers.length > 0) {
               body.providerCandidates = providers;
             }
           }
 
-          if (generationProvider === "huggingface" && billTo) {
+          if (modelProvider === "huggingface" && billTo) {
             body.billTo = billTo;
           }
 
@@ -1521,7 +1562,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       setGenerationStatus(null);
     }
   }, [
-    activeProvider,
     activeTaskContext,
     activeTaskId,
     appendTaskModelLog,
@@ -1558,7 +1598,12 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       return;
     }
 
-    if (activeProvider !== "huggingface") {
+    const hasHuggingFaceModels = selectedProviderIds.includes("huggingface");
+    const hasNonHuggingFaceModels = selectedProviderIds.some(
+      (provider) => provider !== "huggingface",
+    );
+
+    if (!hasHuggingFaceModels || hasNonHuggingFaceModels) {
       setIsGenerateModalOpen(true);
       return;
     }
@@ -1581,12 +1626,12 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
     setIsGenerateModalOpen(true);
   }, [
-    activeProvider,
     generationLoading,
     loadOAuthState,
     oauthConnected,
     oauthStatusLoading,
     runGeneration,
+    selectedProviderIds,
     selectedModels.length,
   ]);
 
@@ -1635,19 +1680,57 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const canOpenGenerateModal = selectedModels.length > 0;
   const oauthAvailable = Boolean(oauthConfig?.enabled && oauthConfig.clientId);
   const showOAuthControls =
-    activeProvider === "huggingface" && (oauthStatusLoading || oauthAvailable);
-  const providerApiKeyPlaceholder =
-    activeProvider === "openai"
-      ? "sk-..."
-      : activeProvider === "anthropic"
-        ? "sk-ant-..."
-        : "AIza...";
-  const providerApiKeyValue =
-    activeProvider === "openai"
-      ? openaiApiKey
-      : activeProvider === "anthropic"
-        ? anthropicApiKey
-        : googleApiKey;
+    (activeProvider === "huggingface" || hasSelectedHfModels) &&
+    (oauthStatusLoading || oauthAvailable);
+  const selectedProviderLabels = selectedProviderIds.map((provider) => getProviderLabel(provider));
+  const getApiKeyPlaceholder = (provider: ProviderId): string => {
+    if (provider === "huggingface") {
+      return "hf_...";
+    }
+
+    if (provider === "openai") {
+      return "sk-...";
+    }
+
+    if (provider === "anthropic") {
+      return "sk-ant-...";
+    }
+
+    return "AIza...";
+  };
+  const getApiKeyValue = (provider: ProviderId): string => {
+    if (provider === "huggingface") {
+      return hfApiKey;
+    }
+
+    if (provider === "openai") {
+      return openaiApiKey;
+    }
+
+    if (provider === "anthropic") {
+      return anthropicApiKey;
+    }
+
+    return googleApiKey;
+  };
+  const setApiKeyValue = (provider: ProviderId, value: string): void => {
+    if (provider === "huggingface") {
+      setHfApiKey(value);
+      return;
+    }
+
+    if (provider === "openai") {
+      setOpenaiApiKey(value);
+      return;
+    }
+
+    if (provider === "anthropic") {
+      setAnthropicApiKey(value);
+      return;
+    }
+
+    setGoogleApiKey(value);
+  };
   const selectedProviderPresetModel =
     activeProvider === "huggingface"
       ? null
@@ -1878,7 +1961,12 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   <ul className="space-y-1.5">
                     {selectedModels.map((model) => (
                       <li key={model.modelId} className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs text-foreground">{model.modelId}</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs text-foreground">{model.modelId}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {isProviderId(model.provider) ? getProviderLabel(model.provider) : "Unknown"}
+                          </p>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -2015,6 +2103,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                       {getStatusBadge(model.status)}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{model.modelId}</p>
+                    {model.sourceType === "model" && isProviderId(model.provider) ? (
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {getProviderLabel(model.provider)}
+                      </p>
+                    ) : null}
                   </button>
                 );
               })}
@@ -2191,7 +2284,10 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                     Generate Session Outputs
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Generate all selected {getProviderLabel(activeProvider)} models in sequence. Outputs are stored only in memory for this session.
+                    {selectedProviderLabels.length > 1
+                      ? `Generate selected models across ${selectedProviderLabels.join(", ")} in sequence.`
+                      : `Generate all selected ${getProviderLabel(selectedProviderIds[0] ?? activeProvider)} models in sequence.`}{" "}
+                    Outputs are stored only in memory for this session.
                   </CardDescription>
                 </div>
                 <Button
@@ -2207,7 +2303,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
             </CardHeader>
             <CardContent className="px-4">
               <form className="space-y-2.5" onSubmit={handleGenerateSubmit}>
-                {showOAuthControls ? (
+                {showOAuthControls && selectedProviderIds.includes("huggingface") ? (
                   <div className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-foreground">Hugging Face OAuth</p>
@@ -2253,80 +2349,50 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   </div>
                 ) : null}
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {getProviderLabel(activeProvider)} API Key
-                    <span className="ml-1 text-muted-foreground/50">
-                      {activeProvider === "huggingface" && oauthAvailable
-                        ? "optional when OAuth is connected"
-                        : "required"}
-                    </span>
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="password"
-                      value={activeProvider === "huggingface" ? hfApiKey : providerApiKeyValue}
-                      onChange={(event) => {
-                        if (activeProvider === "huggingface") {
-                          setHfApiKey(event.target.value);
-                          return;
-                        }
+                {(selectedProviderIds.length > 0 ? selectedProviderIds : [activeProvider]).map(
+                  (provider) => {
+                    const apiKeyValue = getApiKeyValue(provider);
+                    const isHuggingFace = provider === "huggingface";
 
-                        if (activeProvider === "openai") {
-                          setOpenaiApiKey(event.target.value);
-                          return;
-                        }
+                    return (
+                      <div key={`api-key-${provider}`} className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          {getProviderLabel(provider)} API Key
+                          <span className="ml-1 text-muted-foreground/50">
+                            {isHuggingFace && oauthAvailable
+                              ? "optional when OAuth is connected"
+                              : "required"}
+                          </span>
+                        </label>
+                        <p className="text-[11px] text-muted-foreground/70">
+                          Used for {selectedProviderModelCounts[provider]} selected model
+                          {selectedProviderModelCounts[provider] === 1 ? "" : "s"}.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="password"
+                            value={apiKeyValue}
+                            onChange={(event) => setApiKeyValue(provider, event.target.value)}
+                            placeholder={getApiKeyPlaceholder(provider)}
+                            autoComplete="off"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setApiKeyValue(provider, "")}
+                            disabled={generationLoading || apiKeyValue.length === 0}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  },
+                )}
 
-                        if (activeProvider === "anthropic") {
-                          setAnthropicApiKey(event.target.value);
-                          return;
-                        }
-
-                        setGoogleApiKey(event.target.value);
-                      }}
-                      placeholder={
-                        activeProvider === "huggingface"
-                          ? "hf_..."
-                          : providerApiKeyPlaceholder
-                      }
-                      autoComplete="off"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => {
-                        if (activeProvider === "huggingface") {
-                          setHfApiKey("");
-                          return;
-                        }
-
-                        if (activeProvider === "openai") {
-                          setOpenaiApiKey("");
-                          return;
-                        }
-
-                        if (activeProvider === "anthropic") {
-                          setAnthropicApiKey("");
-                          return;
-                        }
-
-                        setGoogleApiKey("");
-                      }}
-                      disabled={
-                        generationLoading ||
-                        (activeProvider === "huggingface"
-                          ? hfApiKey.length === 0
-                          : providerApiKeyValue.length === 0)
-                      }
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-
-                {activeProvider === "huggingface" ? (
+                {selectedProviderIds.includes("huggingface") ? (
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">
                       Bill To
@@ -2346,7 +2412,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
                 <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
                   Generating {selectedModels.length} selected model
-                  {selectedModels.length === 1 ? "" : "s"}.
+                  {selectedModels.length === 1 ? "" : "s"} across{" "}
+                  {selectedProviderLabels.length > 0
+                    ? selectedProviderLabels.join(", ")
+                    : getProviderLabel(activeProvider)}
+                  .
                 </div>
 
                 <Button className="w-full" variant="accent" type="submit" disabled={generationLoading}>

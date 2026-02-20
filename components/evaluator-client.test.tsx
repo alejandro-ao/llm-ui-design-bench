@@ -919,6 +919,103 @@ describe("EvaluatorClient", () => {
     });
   });
 
+  it("generates mixed-provider selections in one batch", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>HF output</body></html>",
+    };
+    streamBehaviors["gpt-4.1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>OpenAI output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addPresetProviderModel("openai", "gpt-4.1");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-openai-test");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 2 model outputs in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests).toHaveLength(2);
+    expect(generateRequests.find((request) => request.provider === "huggingface")).toMatchObject({
+      provider: "huggingface",
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
+      providerCandidates: ["novita", "hf-inference"],
+    });
+    expect(generateRequests.find((request) => request.provider === "openai")).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-4.1",
+      openaiApiKey: "sk-openai-test",
+    });
+  });
+
+  it("generates Hugging Face, OpenAI, and Anthropic models in one batch", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>HF output</body></html>",
+    };
+    streamBehaviors["gpt-4.1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>OpenAI output</body></html>",
+    };
+    streamBehaviors["claude-sonnet-4-20250514"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Anthropic output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addPresetProviderModel("openai", "gpt-4.1");
+    await addPresetProviderModel("anthropic", "claude-sonnet-4-20250514");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-openai-test");
+    await user.type(screen.getByPlaceholderText("sk-ant-..."), "sk-ant-test");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 3 model outputs in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests).toHaveLength(3);
+    expect(generateRequests.find((request) => request.provider === "huggingface")).toMatchObject({
+      provider: "huggingface",
+      modelId: "moonshotai/Kimi-K2.5",
+      hfApiKey: "hf_manual_key",
+      providerCandidates: ["novita", "hf-inference"],
+    });
+    expect(generateRequests.find((request) => request.provider === "openai")).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-4.1",
+      openaiApiKey: "sk-openai-test",
+    });
+    expect(generateRequests.find((request) => request.provider === "anthropic")).toMatchObject({
+      provider: "anthropic",
+      modelId: "claude-sonnet-4-20250514",
+      anthropicApiKey: "sk-ant-test",
+    });
+  });
+
   it("requires OpenAI key when generating with OpenAI provider", async () => {
     streamBehaviors["gpt-4.1"] = {
       kind: "success",
