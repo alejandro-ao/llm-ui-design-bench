@@ -234,6 +234,71 @@ describe("POST /api/generate/hf/stream", () => {
     expect(calledInput.prompt).toContain("--- END USER SKILL ---");
   });
 
+  it("accepts clone_website task context and includes taskId in stream meta", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateStreamMock.mockResolvedValue({
+      html: "<!doctype html><html><body>clone output</body></html>",
+      usedModel: "moonshotai/kimi-k2-instruct",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "moonshotai/kimi-k2-instruct",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 910,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          taskId: "clone_website",
+          taskContext: {
+            targetId: "airbnb_home",
+            screenshotUrl: "http://localhost/task-assets/clone/airbnb-home.svg",
+            referenceNotes: "Match layout and spacing rhythm.",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const rawStream = await response.text();
+    const metaPayload = extractSseEventPayload<{
+      taskId?: string;
+      modelId: string;
+      plannedAttempts: number;
+    }>(rawStream, "meta");
+
+    expect(metaPayload).toMatchObject({
+      taskId: "clone_website",
+      modelId: "moonshotai/kimi-k2-instruct",
+      plannedAttempts: 1,
+    });
+
+    const calledInput = generateStreamMock.mock.calls.at(-1)?.[0] as {
+      prompt: string;
+      baselineHtml: string;
+    };
+    expect(calledInput.baselineHtml).toBe("");
+    expect(calledInput.prompt).toContain("Target website: Airbnb Home");
+    expect(calledInput.prompt).toContain(
+      "Reference screenshot URL: http://localhost/task-assets/clone/airbnb-home.svg",
+    );
+  });
+
   it("rejects oversized skillContent", async () => {
     const response = await POST(
       new NextRequest("http://localhost/api/generate/hf/stream", {
@@ -252,6 +317,31 @@ describe("POST /api/generate/hf/stream", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+    });
+  });
+
+  it("rejects invalid task context", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          taskId: "image_to_code",
+          taskContext: {
+            imageId: "dashboard_a",
+            imageUrl: "/task-assets/image-to-code/dashboard-a.svg",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "taskContext.imageUrl must be an absolute http(s) URL.",
     });
   });
 
@@ -339,6 +429,51 @@ describe("POST /api/generate/hf/stream", () => {
       expect.objectContaining({
         modelId: "MiniMaxAI/MiniMax-M2.5",
         provider: undefined,
+      }),
+    );
+  });
+
+  it("forwards provider candidates when provided", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateStreamMock.mockResolvedValue({
+      html: "<!doctype html><html><body>provider candidates</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5:novita",
+      usedProvider: "novita",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5:novita",
+          provider: "novita",
+          status: "success",
+          retryable: false,
+          durationMs: 700,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+          providers: ["novita", "auto", "NeBiUs"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(generateStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: "MiniMaxAI/MiniMax-M2.5",
+        provider: undefined,
+        providers: ["novita", "nebius"],
       }),
     );
   });

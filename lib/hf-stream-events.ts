@@ -10,6 +10,7 @@ export type HfGenerationStreamEventName =
   | "done";
 
 export interface HfGenerationStreamMetaPayload {
+  taskId?: string;
   modelId: string;
   provider: string | null;
   plannedAttempts: number;

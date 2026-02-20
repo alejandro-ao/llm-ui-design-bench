@@ -47,6 +47,7 @@ interface GenerateWithHfInput {
   hfApiKey: string;
   modelId: string;
   provider?: string;
+  providers?: string[];
   billTo?: string;
   prompt: string;
   baselineHtml: string;
@@ -65,6 +66,7 @@ const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 const DEFAULT_GENERATION_TIMEOUT_MS = 1_200_000;
 const DEFAULT_GENERATION_MAX_TOKENS = 32_768;
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
+const MAX_PROVIDER_CANDIDATES = 8;
 const SYSTEM_PROMPT =
   "You are an expert frontend engineer. Return only one complete HTML document with embedded CSS and JS. No markdown fences, no explanations.";
 
@@ -236,8 +238,53 @@ function resolveHfBaseUrl(rawBaseUrl: string | undefined): string {
   }
 }
 
-export function buildHfAttemptPlan(modelId: string, providerInput: string | undefined): HfAttemptPlan[] {
+function normalizeProviderCandidates(providersInput: string[] | undefined): string[] {
+  if (!providersInput?.length) {
+    return [];
+  }
+
+  const unique = new Set<string>();
+
+  for (const rawProvider of providersInput) {
+    const provider = rawProvider.trim().toLowerCase();
+    if (!provider || provider === "auto") {
+      continue;
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)) {
+      continue;
+    }
+
+    unique.add(provider);
+    if (unique.size >= MAX_PROVIDER_CANDIDATES) {
+      break;
+    }
+  }
+
+  return [...unique];
+}
+
+function isProviderRoutingFallbackError(status: number, detail: string | null): boolean {
+  if ((status !== 400 && status !== 404 && status !== 422) || !detail) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("not supported by any provider") ||
+    normalized.includes("unsupported provider") ||
+    (normalized.includes("provider") &&
+      (normalized.includes("not supported") || normalized.includes("not found")))
+  );
+}
+
+export function buildHfAttemptPlan(
+  modelId: string,
+  providerInput: string | undefined,
+  providersInput: string[] | undefined = undefined,
+): HfAttemptPlan[] {
   const provider = providerInput?.trim().toLowerCase();
+  const providers = normalizeProviderCandidates(providersInput);
 
   if (provider) {
     return [
@@ -245,6 +292,19 @@ export function buildHfAttemptPlan(modelId: string, providerInput: string | unde
         model: `${modelId}:${provider}`,
         provider,
       },
+      {
+        model: modelId,
+        provider: "auto",
+      },
+    ];
+  }
+
+  if (providers.length > 0) {
+    return [
+      ...providers.map((candidate) => ({
+        model: `${modelId}:${candidate}`,
+        provider: candidate,
+      })),
       {
         model: modelId,
         provider: "auto",
@@ -479,6 +539,7 @@ export async function generateHtmlWithHuggingFace({
   hfApiKey,
   modelId,
   provider,
+  providers,
   billTo,
   prompt,
   baselineHtml,
@@ -488,7 +549,7 @@ export async function generateHtmlWithHuggingFace({
   const timeoutMs = resolveGenerationTimeoutMs(process.env.GENERATION_TIMEOUT_MS);
   const maxTokens = resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS);
   const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
-  const attemptPlan = buildHfAttemptPlan(modelId, provider);
+  const attemptPlan = buildHfAttemptPlan(modelId, provider, providers);
   const attempts: HfGenerationAttempt[] = [];
   const deadline = Date.now() + timeoutMs;
 
@@ -496,6 +557,7 @@ export async function generateHtmlWithHuggingFace({
     requestId,
     modelId,
     provider: provider ?? "auto",
+    providerCandidates: providers ?? [],
     timeoutMs,
     maxTokens,
     attemptPlan,
@@ -620,7 +682,10 @@ export async function generateHtmlWithHuggingFace({
 
       const parsed = parseOpenAiError(error);
       const userMessage = buildProviderErrorMessage(parsed.status, parsed.detail);
-      const canRetry = parsed.retryable && attemptIndex < attemptPlan.length - 1;
+      const hasRemainingAttempts = attemptIndex < attemptPlan.length - 1;
+      const canRetry =
+        hasRemainingAttempts &&
+        (parsed.retryable || isProviderRoutingFallbackError(parsed.status, parsed.detail));
       const durationMs = Date.now() - startedAt;
 
       attempts.push({
@@ -674,6 +739,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
   hfApiKey,
   modelId,
   provider,
+  providers,
   billTo,
   prompt,
   baselineHtml,
@@ -686,7 +752,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
   const timeoutMs = resolveGenerationTimeoutMs(process.env.GENERATION_TIMEOUT_MS);
   const maxTokens = resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS);
   const baseUrl = resolveHfBaseUrl(process.env.HF_BASE_URL);
-  const attemptPlan = buildHfAttemptPlan(modelId, provider);
+  const attemptPlan = buildHfAttemptPlan(modelId, provider, providers);
   const attempts: HfGenerationAttempt[] = [];
   const deadline = Date.now() + timeoutMs;
 
@@ -694,6 +760,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
     requestId,
     modelId,
     provider: provider ?? "auto",
+    providerCandidates: providers ?? [],
     timeoutMs,
     maxTokens,
     attemptPlan,
@@ -874,6 +941,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
             hfApiKey,
             modelId,
             provider,
+            providers,
             billTo,
             prompt,
             baselineHtml,
@@ -900,7 +968,10 @@ export async function generateHtmlWithHuggingFaceStreamed({
       }
 
       const userMessage = buildProviderErrorMessage(parsed.status, parsed.detail);
-      const canRetry = parsed.retryable && attemptIndex < attemptPlan.length - 1;
+      const hasRemainingAttempts = attemptIndex < attemptPlan.length - 1;
+      const canRetry =
+        hasRemainingAttempts &&
+        (parsed.retryable || isProviderRoutingFallbackError(parsed.status, parsed.detail));
       const durationMs = Date.now() - startedAt;
 
       attempts.push({

@@ -10,7 +10,7 @@ export function PromptCard({ prompt, promptVersion }: PromptCardProps) {
   return (
     <Card className="gap-3 py-3">
       <CardHeader className="px-3">
-        <CardTitle className="text-sm">Shared Prompt</CardTitle>
+        <CardTitle className="text-sm">Task Prompt</CardTitle>
         <CardDescription className="text-xs">v{promptVersion}</CardDescription>
       </CardHeader>
       <CardContent className="px-3">

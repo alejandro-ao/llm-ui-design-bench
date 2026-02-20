@@ -7,8 +7,11 @@ const replaceMock = vi.fn();
 type GenerateRequestBody = {
   hfApiKey?: string;
   modelId: string;
+  providers?: string[];
   billTo?: string;
   skillContent?: string;
+  taskId?: string;
+  taskContext?: unknown;
 };
 
 type StreamBehavior =
@@ -49,6 +52,7 @@ interface SearchModelResult {
 }
 
 let oauthEnabled = true;
+let oauthMode: "space" | "custom" = "custom";
 let oauthConnected = false;
 let oauthExpiresAt: number | null = null;
 let baselineHtml = "<html><body>Baseline output</body></html>";
@@ -60,31 +64,31 @@ const SEARCH_CATALOG: SearchModelResult[] = [
     modelId: "moonshotai/Kimi-K2.5",
     label: "Kimi-K2.5",
     vendor: "moonshotai",
-    providers: ["auto"],
+    providers: ["novita", "hf-inference"],
   },
   {
     modelId: "minimax/MiniMax-M1",
     label: "MiniMax-M1",
     vendor: "minimax",
-    providers: ["auto"],
+    providers: ["nebius", "fal-ai"],
   },
   {
     modelId: "deepseek-ai/DeepSeek-V3",
     label: "DeepSeek-V3",
     vendor: "deepseek-ai",
-    providers: ["auto"],
+    providers: ["novita"],
   },
   {
     modelId: "qwen/Qwen2.5-Coder-32B-Instruct",
     label: "Qwen2.5-Coder-32B-Instruct",
     vendor: "qwen",
-    providers: ["auto"],
+    providers: ["fireworks-ai"],
   },
   {
     modelId: "meta-llama/Llama-3.3-70B-Instruct",
     label: "Llama-3.3-70B-Instruct",
     vendor: "meta-llama",
-    providers: ["auto"],
+    providers: ["together"],
   },
 ];
 
@@ -227,7 +231,7 @@ function installFetchMock() {
         return new Response(
           JSON.stringify({
             enabled: oauthEnabled,
-            mode: "custom",
+            mode: oauthMode,
             exchangeMethod: "client_secret",
             clientId: oauthEnabled ? "hf_client" : null,
             scopes: ["openid", "profile", "inference-api"],
@@ -378,6 +382,7 @@ describe("EvaluatorClient", () => {
     replaceMock.mockReset();
 
     oauthEnabled = true;
+    oauthMode = "custom";
     oauthConnected = false;
     oauthExpiresAt = Math.floor(Date.now() / 1000) + 900;
     baselineHtml = "<html><body>Baseline output</body></html>";
@@ -552,8 +557,73 @@ describe("EvaluatorClient", () => {
     expect(generateRequests[0]).toMatchObject({
       modelId: "moonshotai/Kimi-K2.5",
       hfApiKey: "hf_manual_key",
+      providers: ["novita", "hf-inference"],
       skillContent: "Use magazine-style typography and dramatic spacing.",
     });
+  });
+
+  it("sends typed task payload for multistep form generations", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi multistep output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Multi-step Form/i }));
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests).toHaveLength(1);
+    expect(generateRequests[0]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      providers: ["novita", "hf-inference"],
+      taskId: "multistep_form",
+      taskContext: {
+        formVariant: "saas_onboarding",
+      },
+    });
+  });
+
+  it("keeps models and skills isolated per task", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await saveSkillContent("HTML redesign skill.");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Clone Website/i }));
+
+    expect(screen.getByText("No models selected yet.")).toBeInTheDocument();
+    expect(screen.getByText("No skill attached.")).toBeInTheDocument();
+
+    await addModelFromSearch("minimax", "MiniMax-M1");
+    await saveSkillContent("Clone task skill.");
+
+    await user.click(screen.getByRole("button", { name: /HTML to HTML Redesign/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("moonshotai/Kimi-K2.5").length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText("Skill attached • 20 chars")).toBeInTheDocument();
+    expect(screen.queryByText("minimax/MiniMax-M1")).not.toBeInTheDocument();
   });
 
   it("clearing skill removes it from subsequent generation requests", async () => {
@@ -744,11 +814,7 @@ describe("EvaluatorClient", () => {
       expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
 
-    await addModelFromSearch("kimi", "Kimi-K2.5");
-
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
-
     expect(screen.getAllByText(/Token expires/).length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: "Disconnect Hugging Face" })[0]);
 
@@ -775,14 +841,16 @@ describe("EvaluatorClient", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Generate Selected" }));
-    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
 
     await waitFor(() => {
       expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
     });
 
     expect(generateRequests).toHaveLength(1);
-    expect(generateRequests[0]).toMatchObject({ modelId: "moonshotai/Kimi-K2.5" });
+    expect(generateRequests[0]).toMatchObject({
+      modelId: "moonshotai/Kimi-K2.5",
+      providers: ["novita", "hf-inference"],
+    });
     expect(generateRequests[0]).not.toHaveProperty("hfApiKey");
   });
 

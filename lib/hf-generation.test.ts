@@ -223,6 +223,46 @@ describe("generateHtmlWithHuggingFace", () => {
     expect(result.attempts).toHaveLength(1);
   });
 
+  it("tries provider candidates before auto routing", async () => {
+    completionCreateMock
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "The requested model 'MiniMaxAI/MiniMax-M2' is not supported by any provider you have enabled.",
+          ),
+          {
+            status: 400,
+          },
+        ),
+      )
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: "<!doctype html><html><body>provider fallback</body></html>",
+            },
+          },
+        ],
+      });
+
+    const result = await generateHtmlWithHuggingFace({
+      hfApiKey: "hf_test_key",
+      modelId: "MiniMaxAI/MiniMax-M2",
+      providers: ["nebius", "novita"],
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+    });
+
+    const firstCall = completionCreateMock.mock.calls[0]?.[0] as { model: string };
+    const secondCall = completionCreateMock.mock.calls[1]?.[0] as { model: string };
+
+    expect(firstCall.model).toBe("MiniMaxAI/MiniMax-M2:nebius");
+    expect(secondCall.model).toBe("MiniMaxAI/MiniMax-M2:novita");
+    expect(result.usedProvider).toBe("novita");
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts[0]?.retryable).toBe(true);
+  });
+
   it("respects GENERATION_MAX_TOKENS override", async () => {
     process.env.GENERATION_MAX_TOKENS = "12000";
     completionCreateMock.mockResolvedValue({

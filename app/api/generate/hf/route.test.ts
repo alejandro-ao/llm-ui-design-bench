@@ -190,6 +190,58 @@ describe("POST /api/generate/hf", () => {
     expect(calledInput.prompt).toContain("--- END USER SKILL ---");
   });
 
+  it("accepts image_to_code task context and builds task-specific prompt", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>image task output</body></html>",
+      usedModel: "moonshotai/kimi-k2-instruct",
+      usedProvider: "auto",
+      attempts: [
+        {
+          model: "moonshotai/kimi-k2-instruct",
+          provider: "auto",
+          status: "success",
+          retryable: false,
+          durationMs: 900,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          taskId: "image_to_code",
+          taskContext: {
+            imageId: "dashboard_a",
+            imageUrl: "http://localhost/task-assets/image-to-code/dashboard-a.svg",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    const calledInput = generateMock.mock.calls.at(-1)?.[0] as {
+      prompt: string;
+      baselineHtml: string;
+    };
+    expect(calledInput.baselineHtml).toBe("");
+    expect(calledInput.prompt).toContain(
+      "Reference image URL: http://localhost/task-assets/image-to-code/dashboard-a.svg",
+    );
+    expect(calledInput.prompt).not.toContain(SHARED_PROMPT);
+  });
+
   it("rejects oversized skillContent", async () => {
     const response = await POST(
       new NextRequest("http://localhost/api/generate/hf", {
@@ -208,6 +260,28 @@ describe("POST /api/generate/hf", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: `skillContent must be ${MAX_SKILL_CONTENT_CHARS} characters or fewer.`,
+    });
+  });
+
+  it("rejects invalid task id", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "moonshotai/kimi-k2-instruct",
+          taskId: "bad_task",
+          taskContext: {},
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "taskId is invalid.",
     });
   });
 
@@ -464,6 +538,51 @@ describe("POST /api/generate/hf", () => {
       expect.objectContaining({
         modelId: "MiniMaxAI/MiniMax-M2.5",
         provider: undefined,
+      }),
+    );
+  });
+
+  it("forwards provider candidates when provided", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>provider candidates</body></html>",
+      usedModel: "MiniMaxAI/MiniMax-M2.5:novita",
+      usedProvider: "novita",
+      attempts: [
+        {
+          model: "MiniMaxAI/MiniMax-M2.5:novita",
+          provider: "novita",
+          status: "success",
+          retryable: false,
+          durationMs: 600,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate/hf", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          hfApiKey: "hf_test_key",
+          modelId: "MiniMaxAI/MiniMax-M2.5",
+          providers: ["novita", "auto", "NeBiUs"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(generateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: "MiniMaxAI/MiniMax-M2.5",
+        provider: undefined,
+        providers: ["novita", "nebius"],
       }),
     );
   });

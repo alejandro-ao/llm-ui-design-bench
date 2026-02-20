@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,6 +26,20 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MAX_SKILL_CONTENT_CHARS } from "@/lib/prompt";
+import {
+  buildTaskPrompt,
+  CLONE_WEBSITE_TARGETS,
+  DEFAULT_TASK_ID,
+  getImageToCodeReference,
+  getTaskDefinition,
+  IMAGE_TO_CODE_REFERENCES,
+  listTaskOptions,
+  resolveAssetUrl,
+  type CloneWebsiteTarget,
+  type ImageToCodeReference,
+  type TaskContext,
+  type TaskId,
+} from "@/lib/tasks";
 import type {
   HfGenerationStreamAttemptPayload,
   HfGenerationStreamCompletePayload,
@@ -43,6 +58,10 @@ const OAUTH_SECRET_MISCONFIGURED_MESSAGE =
   "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET (recommended) or ensure OAuth client secret env vars are available, then redeploy.";
 const OAUTH_SESSION_NOT_PERSISTED_MESSAGE =
   "Hugging Face OAuth completed, but no active OAuth session is available. If you are in the embedded Spaces page, open the direct `*.hf.space` URL and reconnect.";
+const TASK_OPTIONS = listTaskOptions();
+const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
+const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "dashboard_a";
+const DEFAULT_CLONE_TARGET_ID = CLONE_WEBSITE_TARGETS[0]?.id ?? "airbnb_home";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -113,8 +132,137 @@ interface SessionModel {
 }
 
 interface EvaluatorClientProps {
-  prompt: string;
-  promptVersion: string;
+  prompt?: string;
+  promptVersion?: string;
+}
+
+type TaskModelMap = Record<TaskId, SessionModel[]>;
+type TaskStringMap = Record<TaskId, string>;
+type TaskNullableStringMap = Record<TaskId, string | null>;
+type TaskBooleanMap = Record<TaskId, boolean>;
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildTaskMap<T>(factory: (taskId: TaskId) => T): Record<TaskId, T> {
+  return TASK_IDS.reduce((accumulator, taskId) => {
+    accumulator[taskId] = factory(taskId);
+    return accumulator;
+  }, {} as Record<TaskId, T>);
+}
+
+function buildReferenceHtml(
+  title: string,
+  description: string,
+  mediaUrl?: string,
+): string {
+  const safeTitle = escapeHtml(title);
+  const safeDescription = escapeHtml(description);
+  const safeMediaUrl = mediaUrl ? escapeHtml(mediaUrl) : null;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #dbe3ef;
+      --accent: #0f172a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top right, #e2ecff 0%, var(--bg) 38%);
+      color: var(--text);
+      padding: 32px;
+    }
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 28px;
+      box-shadow: 0 24px 50px rgba(15, 23, 42, 0.08);
+    }
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+      letter-spacing: -0.02em;
+    }
+    p {
+      margin: 14px 0 0;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 70ch;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 16px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: #f8fbff;
+    }
+    .frame {
+      margin-top: 24px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #eef2f7;
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+      display: block;
+    }
+    .placeholder {
+      padding: 28px;
+      color: #64748b;
+      text-align: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>${safeTitle}</h1>
+    <p>${safeDescription}</p>
+    <span class="badge">Task reference</span>
+    <section class="frame">
+      ${
+        safeMediaUrl
+          ? `<img src="${safeMediaUrl}" alt="${safeTitle}" />`
+          : '<div class="placeholder">Generate a model output to preview this task.</div>'
+      }
+    </section>
+  </main>
+</body>
+</html>`;
 }
 
 function formatOAuthExpiry(value: number | null): string {
@@ -212,17 +360,44 @@ function parseSseEventBlock(
   }
 }
 
-function buildInitialBaselineModel(): SessionModel {
+function normalizeProviderCandidates(providers: string[]): string[] {
+  const unique = new Set<string>();
+
+  for (const rawProvider of providers) {
+    const provider = rawProvider.trim().toLowerCase();
+    if (!provider || provider === "auto") {
+      continue;
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)) {
+      continue;
+    }
+
+    unique.add(provider);
+    if (unique.size >= 8) {
+      break;
+    }
+  }
+
+  return [...unique];
+}
+
+function buildInitialBaselineModel(options?: {
+  label?: string;
+  html?: string | null;
+}): SessionModel {
+  const html = options?.html ?? null;
+
   return {
     modelId: BASELINE_MODEL_ID,
-    label: "Baseline (Original)",
+    label: options?.label ?? "Baseline (Original)",
     vendor: "baseline",
     provider: "reference",
     sourceType: "baseline",
     providers: [],
     status: "baseline",
-    streamedHtml: "",
-    finalHtml: null,
+    streamedHtml: html ?? "",
+    finalHtml: html,
     logs: [],
     attempts: [],
     error: null,
@@ -249,24 +424,79 @@ function getStatusBadge(status: SessionModelStatus) {
   return <Badge variant="outline">baseline</Badge>;
 }
 
-export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps) {
+function buildInitialTaskModels(): TaskModelMap {
+  const defaultImageReference = getImageToCodeReference(DEFAULT_IMAGE_REFERENCE_ID);
+  const defaultCloneTarget = CLONE_WEBSITE_TARGETS[0];
+
+  return {
+    html_redesign: [buildInitialBaselineModel()],
+    multistep_form: [
+      buildInitialBaselineModel({
+        label: "Task Reference (SaaS Onboarding)",
+        html: buildReferenceHtml(
+          "Multi-step SaaS Onboarding",
+          "Required sections: Account, Company, Team Invite, Plan & Billing, and Review & Submit. Interaction and style are model-defined.",
+        ),
+      }),
+    ],
+    image_to_code: [
+      buildInitialBaselineModel({
+        label: `Reference Mockup (${defaultImageReference.label})`,
+        html: buildReferenceHtml(
+          "Image to Code Reference",
+          defaultImageReference.description,
+          defaultImageReference.assetPath,
+        ),
+      }),
+    ],
+    clone_website: [
+      buildInitialBaselineModel({
+        label: `Clone Target (${defaultCloneTarget?.label ?? "Website"})`,
+        html: buildReferenceHtml(
+          defaultCloneTarget?.label ?? "Clone Website",
+          defaultCloneTarget?.description ?? "Clone this visual style using static HTML/CSS/JS.",
+          defaultCloneTarget?.assetPath,
+        ),
+      }),
+    ],
+  };
+}
+
+export function EvaluatorClient(_props: EvaluatorClientProps) {
+  void _props;
   const router = useRouter();
   const pathname = usePathname();
 
-  const [sessionModels, setSessionModels] = useState<SessionModel[]>([buildInitialBaselineModel()]);
-  const [selectedModelId, setSelectedModelId] = useState(BASELINE_MODEL_ID);
-  const [baselineLoading, setBaselineLoading] = useState(true);
-  const [baselineError, setBaselineError] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<TaskId>(DEFAULT_TASK_ID);
+  const [sessionModelsByTask, setSessionModelsByTask] = useState<TaskModelMap>(() =>
+    buildInitialTaskModels(),
+  );
+  const [selectedModelIdByTask, setSelectedModelIdByTask] = useState<TaskStringMap>(() =>
+    buildTaskMap(() => BASELINE_MODEL_ID),
+  );
+  const [baselineLoadingByTask, setBaselineLoadingByTask] = useState<TaskBooleanMap>(() =>
+    buildTaskMap((taskId) => taskId === "html_redesign"),
+  );
+  const [baselineErrorByTask, setBaselineErrorByTask] = useState<TaskNullableStringMap>(() =>
+    buildTaskMap(() => null),
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchModelResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-  const [skillContent, setSkillContent] = useState("");
+  const [skillContentByTask, setSkillContentByTask] = useState<TaskStringMap>(() =>
+    buildTaskMap(() => ""),
+  );
   const [skillDraft, setSkillDraft] = useState("");
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
+  const [activeImageReferenceId, setActiveImageReferenceId] =
+    useState<ImageToCodeReference["id"]>(DEFAULT_IMAGE_REFERENCE_ID);
+  const [activeCloneTargetId, setActiveCloneTargetId] =
+    useState<CloneWebsiteTarget["id"]>(DEFAULT_CLONE_TARGET_ID);
+  const [clientOrigin, setClientOrigin] = useState("http://localhost");
 
   const [hfApiKey, setHfApiKey] = useState("");
   const [generationBillTo, setGenerationBillTo] = useState("");
@@ -274,6 +504,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationSuccess, setGenerationSuccess] = useState<string | null>(null);
+  const [activeGeneratingTaskId, setActiveGeneratingTaskId] = useState<TaskId | null>(null);
   const [activeGeneratingModelId, setActiveGeneratingModelId] = useState<string | null>(null);
 
   const [oauthConfig, setOauthConfig] = useState<OAuthConfigResponse | null>(null);
@@ -282,10 +513,65 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   const [oauthStatusLoading, setOauthStatusLoading] = useState(true);
   const [oauthActionLoading, setOauthActionLoading] = useState(false);
   const [oauthUiError, setOauthUiError] = useState<string | null>(null);
+  const autoOAuthAttemptedRef = useRef(false);
+  const autoOAuthSuppressedRef = useRef(false);
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [activeCodeFile, setActiveCodeFile] = useState<CodeFileName>("index.html");
   const [activeMainTab, setActiveMainTab] = useState<MainPanelTab>("app");
+
+  const sessionModels = sessionModelsByTask[activeTaskId];
+  const selectedModelId = selectedModelIdByTask[activeTaskId];
+  const baselineLoading = baselineLoadingByTask[activeTaskId];
+  const baselineError = baselineErrorByTask[activeTaskId];
+  const skillContent = skillContentByTask[activeTaskId];
+  const activeTaskDefinition = getTaskDefinition(activeTaskId);
+  const selectedImageReference = useMemo(
+    () => getImageToCodeReference(activeImageReferenceId),
+    [activeImageReferenceId],
+  );
+  const selectedCloneTarget = useMemo(
+    () => {
+      const target =
+        CLONE_WEBSITE_TARGETS.find((item) => item.id === activeCloneTargetId) ??
+        CLONE_WEBSITE_TARGETS[0];
+
+      if (!target) {
+        throw new Error("Clone website targets are not configured.");
+      }
+
+      return target;
+    },
+    [activeCloneTargetId],
+  );
+  const activeTaskContext = useMemo((): TaskContext => {
+    if (activeTaskId === "html_redesign") {
+      return {} as Record<string, never>;
+    }
+
+    if (activeTaskId === "multistep_form") {
+      return {
+        formVariant: "saas_onboarding",
+      };
+    }
+
+    if (activeTaskId === "image_to_code") {
+      return {
+        imageId: selectedImageReference.id,
+        imageUrl: resolveAssetUrl(clientOrigin, selectedImageReference.assetPath),
+      };
+    }
+
+    return {
+      targetId: selectedCloneTarget.id,
+      screenshotUrl: resolveAssetUrl(clientOrigin, selectedCloneTarget.assetPath),
+      referenceNotes: selectedCloneTarget.referenceNotes,
+    };
+  }, [activeTaskId, clientOrigin, selectedCloneTarget, selectedImageReference]);
+  const activePrompt = useMemo(
+    () => buildTaskPrompt(activeTaskId, activeTaskContext),
+    [activeTaskContext, activeTaskId],
+  );
 
   const selectedModels = useMemo(
     () => sessionModels.filter((model) => model.sourceType === "model"),
@@ -305,19 +591,58 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   }, [selectedModel.finalHtml, selectedModel.streamedHtml]);
 
   const selectedModelIsGenerating =
-    generationLoading && activeGeneratingModelId === selectedModel.modelId;
+    generationLoading &&
+    activeGeneratingTaskId === activeTaskId &&
+    activeGeneratingModelId === selectedModel.modelId;
 
-  const patchSessionModel = useCallback(
-    (modelId: string, updater: (model: SessionModel) => SessionModel) => {
-      setSessionModels((previous) =>
-        previous.map((model) => (model.modelId === modelId ? updater(model) : model)),
-      );
+  const setTaskSessionModels = useCallback(
+    (taskId: TaskId, updater: (previous: SessionModel[]) => SessionModel[]) => {
+      setSessionModelsByTask((previous) => ({
+        ...previous,
+        [taskId]: updater(previous[taskId]),
+      }));
     },
     [],
   );
 
-  const appendModelLog = useCallback(
-    (modelId: string, message: string) => {
+  const setActiveSessionModels = useCallback(
+    (updater: (previous: SessionModel[]) => SessionModel[]) => {
+      setTaskSessionModels(activeTaskId, updater);
+    },
+    [activeTaskId, setTaskSessionModels],
+  );
+
+  const patchTaskSessionModel = useCallback(
+    (taskId: TaskId, modelId: string, updater: (model: SessionModel) => SessionModel) => {
+      setTaskSessionModels(taskId, (previous) =>
+        previous.map((model) => (model.modelId === modelId ? updater(model) : model)),
+      );
+    },
+    [setTaskSessionModels],
+  );
+
+  const setActiveSelectedModelId = useCallback(
+    (modelId: string) => {
+      setSelectedModelIdByTask((previous) => ({
+        ...previous,
+        [activeTaskId]: modelId,
+      }));
+    },
+    [activeTaskId],
+  );
+
+  const setActiveSkillContent = useCallback(
+    (value: string) => {
+      setSkillContentByTask((previous) => ({
+        ...previous,
+        [activeTaskId]: value,
+      }));
+    },
+    [activeTaskId],
+  );
+
+  const appendTaskModelLog = useCallback(
+    (taskId: TaskId, modelId: string, message: string) => {
       const timestamp = new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
@@ -325,12 +650,12 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         hour12: false,
       });
 
-      patchSessionModel(modelId, (model) => ({
+      patchTaskSessionModel(taskId, modelId, (model) => ({
         ...model,
         logs: [...model.logs.slice(-39), `${timestamp} ${message}`],
       }));
     },
-    [patchSessionModel],
+    [patchTaskSessionModel],
   );
 
   const loadOAuthState = useCallback(async (): Promise<OAuthStateSnapshot> => {
@@ -402,6 +727,11 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       return;
     }
 
+    autoOAuthAttemptedRef.current = true;
+    if (oauthStatus !== "connected") {
+      autoOAuthSuppressedRef.current = true;
+    }
+
     params.delete("oauth");
     params.delete("oauth_error");
     const nextQuery = params.toString();
@@ -436,21 +766,25 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       }
 
       setGenerationSuccess(null);
+
+      let resolvedOAuthError = "Unable to complete Hugging Face OAuth flow. Try connecting again.";
       if (oauthStatus === "disabled") {
-        setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
+        resolvedOAuthError = OAUTH_UNAVAILABLE_MESSAGE;
       } else if (oauthStatus === "session_secret") {
-        setOauthUiError(oauthStatusError || OAUTH_SECRET_MISCONFIGURED_MESSAGE);
+        resolvedOAuthError = oauthStatusError || OAUTH_SECRET_MISCONFIGURED_MESSAGE;
       } else if (oauthStatus === "missing_pkce") {
-        setOauthUiError(
+        resolvedOAuthError =
           oauthStatusError ||
-            "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
-        );
+          "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.";
       } else if (oauthStatus === "exchange_failed") {
-        setOauthUiError(
-          oauthStatusError || "Unable to complete Hugging Face OAuth exchange. Try connecting again.",
-        );
-      } else {
-        setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
+        resolvedOAuthError =
+          oauthStatusError || "Unable to complete Hugging Face OAuth exchange. Try connecting again.";
+      }
+
+      setOauthUiError(resolvedOAuthError);
+      await loadOAuthState();
+      if (!cancelled) {
+        setOauthUiError(resolvedOAuthError);
       }
     };
 
@@ -462,11 +796,77 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   }, [loadOAuthState, pathname, router]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setClientOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchError(null);
+    setSelectionNotice(null);
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    const imageReference = getImageToCodeReference(activeImageReferenceId);
+    patchTaskSessionModel("image_to_code", BASELINE_MODEL_ID, (model) => ({
+      ...model,
+      label: `Reference Mockup (${imageReference.label})`,
+      finalHtml: buildReferenceHtml(
+        "Image to Code Reference",
+        imageReference.description,
+        imageReference.assetPath,
+      ),
+      streamedHtml: buildReferenceHtml(
+        "Image to Code Reference",
+        imageReference.description,
+        imageReference.assetPath,
+      ),
+      error: null,
+    }));
+  }, [activeImageReferenceId, patchTaskSessionModel]);
+
+  useEffect(() => {
+    const cloneTarget =
+      CLONE_WEBSITE_TARGETS.find((target) => target.id === activeCloneTargetId) ??
+      CLONE_WEBSITE_TARGETS[0];
+
+    if (!cloneTarget) {
+      return;
+    }
+
+    patchTaskSessionModel("clone_website", BASELINE_MODEL_ID, (model) => ({
+      ...model,
+      label: `Clone Target (${cloneTarget.label})`,
+      finalHtml: buildReferenceHtml(
+        cloneTarget.label,
+        cloneTarget.description,
+        cloneTarget.assetPath,
+      ),
+      streamedHtml: buildReferenceHtml(
+        cloneTarget.label,
+        cloneTarget.description,
+        cloneTarget.assetPath,
+      ),
+      error: null,
+    }));
+  }, [activeCloneTargetId, patchTaskSessionModel]);
+
+  useEffect(() => {
     let active = true;
 
     const loadBaseline = async () => {
-      setBaselineLoading(true);
-      setBaselineError(null);
+      setBaselineLoadingByTask((previous) => ({
+        ...previous,
+        html_redesign: true,
+      }));
+      setBaselineErrorByTask((previous) => ({
+        ...previous,
+        html_redesign: null,
+      }));
 
       try {
         const response = await fetch(
@@ -485,7 +885,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           return;
         }
 
-        patchSessionModel(BASELINE_MODEL_ID, (model) => ({
+        patchTaskSessionModel("html_redesign", BASELINE_MODEL_ID, (model) => ({
           ...model,
           label: payload.entry.label,
           finalHtml: payload.html,
@@ -494,8 +894,11 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         }));
       } catch {
         if (active) {
-          setBaselineError("Unable to load baseline preview.");
-          patchSessionModel(BASELINE_MODEL_ID, (model) => ({
+          setBaselineErrorByTask((previous) => ({
+            ...previous,
+            html_redesign: "Unable to load baseline preview.",
+          }));
+          patchTaskSessionModel("html_redesign", BASELINE_MODEL_ID, (model) => ({
             ...model,
             finalHtml: null,
             streamedHtml: "",
@@ -503,7 +906,10 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         }
       } finally {
         if (active) {
-          setBaselineLoading(false);
+          setBaselineLoadingByTask((previous) => ({
+            ...previous,
+            html_redesign: false,
+          }));
         }
       }
     };
@@ -513,7 +919,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     return () => {
       active = false;
     };
-  }, [patchSessionModel]);
+  }, [patchTaskSessionModel]);
 
   useEffect(() => {
     const trimmedQuery = searchQuery.trim();
@@ -579,7 +985,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         return;
       }
 
-      setSessionModels((previous) => [
+      setActiveSessionModels((previous) => [
         ...previous,
         {
           modelId: result.modelId,
@@ -600,7 +1006,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       setSearchQuery("");
       setSearchResults([]);
     },
-    [selectedModels.length, sessionModels],
+    [selectedModels.length, sessionModels, setActiveSessionModels],
   );
 
   const removeSelectedModel = useCallback(
@@ -609,13 +1015,15 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         return;
       }
 
-      setSessionModels((previous) => previous.filter((model) => model.modelId !== modelId));
+      setActiveSessionModels((previous) =>
+        previous.filter((model) => model.modelId !== modelId),
+      );
       if (selectedModelId === modelId) {
-        setSelectedModelId(BASELINE_MODEL_ID);
+        setActiveSelectedModelId(BASELINE_MODEL_ID);
       }
       setSelectionNotice(null);
     },
-    [generationLoading, selectedModelId],
+    [generationLoading, selectedModelId, setActiveSelectedModelId, setActiveSessionModels],
   );
 
   const openSkillModal = useCallback(() => {
@@ -637,16 +1045,16 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       return;
     }
 
-    setSkillContent(normalizedSkill);
+    setActiveSkillContent(normalizedSkill);
     setSkillError(null);
     setIsSkillModalOpen(false);
-  }, [skillDraft]);
+  }, [setActiveSkillContent, skillDraft]);
 
   const handleClearSkill = useCallback(() => {
     setSkillDraft("");
-    setSkillContent("");
+    setActiveSkillContent("");
     setSkillError(null);
-  }, []);
+  }, [setActiveSkillContent]);
 
   const handleOAuthConnect = useCallback(async () => {
     if (!oauthConfig?.enabled || !oauthConfig.clientId) {
@@ -671,7 +1079,35 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     setOauthActionLoading(false);
   }, [oauthConfig]);
 
+  useEffect(() => {
+    if (oauthStatusLoading || oauthActionLoading || oauthConnected) {
+      return;
+    }
+
+    if (!oauthConfig?.enabled || !oauthConfig.clientId) {
+      return;
+    }
+
+    if (oauthConfig.mode !== "space") {
+      return;
+    }
+
+    if (autoOAuthAttemptedRef.current || autoOAuthSuppressedRef.current) {
+      return;
+    }
+
+    autoOAuthAttemptedRef.current = true;
+    void handleOAuthConnect();
+  }, [
+    handleOAuthConnect,
+    oauthActionLoading,
+    oauthConfig,
+    oauthConnected,
+    oauthStatusLoading,
+  ]);
+
   const handleOAuthDisconnect = useCallback(async () => {
+    autoOAuthSuppressedRef.current = true;
     setOauthActionLoading(true);
     setGenerationError(null);
     setOauthUiError(null);
@@ -696,69 +1132,71 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     }
   }, [loadOAuthState]);
 
-  const handleGenerate = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      setGenerationError(null);
-      setGenerationSuccess(null);
-      setActiveCodeFile("index.html");
+  const runGeneration = useCallback(async () => {
+    setGenerationError(null);
+    setGenerationSuccess(null);
+    setActiveCodeFile("index.html");
 
-      const apiKey = hfApiKey.trim();
-      const billTo = generationBillTo.trim();
-      const normalizedSkill = skillContent.trim();
+    const apiKey = hfApiKey.trim();
+    const billTo = generationBillTo.trim();
+    const normalizedSkill = skillContent.trim();
+    const generationTaskId = activeTaskId;
+    const generationTaskContext = activeTaskContext;
 
-      if (!selectedModels.length) {
-        setGenerationError("Select at least one model to generate.");
+    if (!selectedModels.length) {
+      setGenerationError("Select at least one model to generate.");
+      return;
+    }
+
+    if (!apiKey) {
+      const oauthSnapshot = await loadOAuthState();
+      const oauthAvailable = Boolean(oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId);
+      if (!oauthSnapshot.connected) {
+        setGenerationError(
+          oauthAvailable
+            ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
+            : "Add your Hugging Face API key to run generation.",
+        );
         return;
       }
+    }
 
-      if (!apiKey) {
-        const oauthSnapshot = await loadOAuthState();
-        const oauthAvailable = Boolean(oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId);
-        if (!oauthSnapshot.connected) {
-          setGenerationError(
-            oauthAvailable
-              ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
-              : "Add your Hugging Face API key to run generation.",
-          );
-          return;
-        }
-      }
+    if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
+      setGenerationError(SKILL_TOO_LONG_MESSAGE);
+      return;
+    }
 
-      if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
-        setGenerationError(SKILL_TOO_LONG_MESSAGE);
-        return;
-      }
+    setActiveSessionModels((previous) =>
+      previous.map((model) =>
+        model.sourceType === "model"
+          ? {
+              ...model,
+              status: "queued",
+              streamedHtml: "",
+              finalHtml: null,
+              logs: [],
+              attempts: [],
+              error: null,
+            }
+          : model,
+      ),
+    );
 
-      setSessionModels((previous) =>
-        previous.map((model) =>
-          model.sourceType === "model"
-            ? {
-                ...model,
-                status: "queued",
-                streamedHtml: "",
-                finalHtml: null,
-                logs: [],
-                attempts: [],
-                error: null,
-              }
-            : model,
-        ),
-      );
+    setIsGenerateModalOpen(false);
+    setGenerationLoading(true);
+    setActiveGeneratingTaskId(generationTaskId);
 
-      setIsGenerateModalOpen(false);
-      setGenerationLoading(true);
+    let failedCount = 0;
 
-      let failedCount = 0;
-
+    try {
       for (const [index, model] of selectedModels.entries()) {
         const queuePosition = `${index + 1}/${selectedModels.length}`;
         setGenerationStatus(`Generating ${model.label} (${queuePosition})...`);
         setActiveGeneratingModelId(model.modelId);
-        setSelectedModelId(model.modelId);
+        setActiveSelectedModelId(model.modelId);
         setActiveMainTab("code");
 
-        patchSessionModel(model.modelId, (current) => ({
+        patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
           ...current,
           status: "generating",
           streamedHtml: "",
@@ -767,20 +1205,30 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           attempts: [],
           error: null,
         }));
-        appendModelLog(model.modelId, `Started generation (${queuePosition}).`);
+        appendTaskModelLog(generationTaskId, model.modelId, `Started generation (${queuePosition}).`);
 
         try {
           const body: {
             hfApiKey?: string;
             modelId: string;
+            providers?: string[];
             billTo?: string;
             skillContent?: string;
+            taskId: TaskId;
+            taskContext: TaskContext;
           } = {
             modelId: model.modelId,
+            taskId: generationTaskId,
+            taskContext: generationTaskContext,
           };
 
           if (apiKey) {
             body.hfApiKey = apiKey;
+          }
+
+          const providers = normalizeProviderCandidates(model.providers);
+          if (providers.length > 0) {
+            body.providers = providers;
           }
 
           if (billTo) {
@@ -808,12 +1256,13 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               : null;
 
             if (payload?.attempts?.length) {
-              patchSessionModel(model.modelId, (current) => ({
+              patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
                 ...current,
                 attempts: payload.attempts ?? [],
               }));
               payload.attempts.forEach((attempt, attemptIndex) => {
-                appendModelLog(
+                appendTaskModelLog(
+                  generationTaskId,
                   model.modelId,
                   formatAttemptLogLine(
                     attempt,
@@ -857,7 +1306,8 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
 
               if (parsedBlock.event === "meta") {
                 const payload = parsedBlock.payload as HfGenerationStreamMetaPayload;
-                appendModelLog(
+                appendTaskModelLog(
+                  generationTaskId,
                   model.modelId,
                   `Stream ready with ${payload.plannedAttempts} planned attempts.`,
                 );
@@ -867,13 +1317,14 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               if (parsedBlock.event === "attempt") {
                 const payload = parsedBlock.payload as HfGenerationStreamAttemptPayload;
                 if (payload.resetCode) {
-                  patchSessionModel(model.modelId, (current) => ({
+                  patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
                     ...current,
                     streamedHtml: "",
                   }));
                 }
 
-                appendModelLog(
+                appendTaskModelLog(
+                  generationTaskId,
                   model.modelId,
                   `Attempt ${payload.attemptNumber}/${payload.totalAttempts} started (${payload.model}).`,
                 );
@@ -886,7 +1337,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   continue;
                 }
 
-                patchSessionModel(model.modelId, (current) => ({
+                patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
                   ...current,
                   streamedHtml: current.streamedHtml + payload.text,
                 }));
@@ -896,7 +1347,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               if (parsedBlock.event === "log") {
                 const payload = parsedBlock.payload as HfGenerationStreamLogPayload;
                 if (payload.message) {
-                  appendModelLog(model.modelId, payload.message);
+                  appendTaskModelLog(generationTaskId, model.modelId, payload.message);
                 }
                 continue;
               }
@@ -905,7 +1356,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                 const payload = parsedBlock.payload as HfGenerationStreamCompletePayload;
                 completed = true;
 
-                patchSessionModel(model.modelId, (current) => ({
+                patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
                   ...current,
                   status: "done",
                   finalHtml: payload.result.html,
@@ -915,7 +1366,8 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                 }));
 
                 payload.generation.attempts.forEach((attempt, attemptIndex) => {
-                  appendModelLog(
+                  appendTaskModelLog(
+                    generationTaskId,
                     model.modelId,
                     formatAttemptLogLine(
                       attempt,
@@ -925,21 +1377,26 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   );
                 });
 
-                appendModelLog(model.modelId, "Generation complete for this session.");
+                appendTaskModelLog(
+                  generationTaskId,
+                  model.modelId,
+                  "Generation complete for this session.",
+                );
                 setActiveMainTab("app");
                 continue;
               }
 
               if (parsedBlock.event === "error") {
                 const payload = parsedBlock.payload as HfGenerationStreamErrorPayload;
-                patchSessionModel(model.modelId, (current) => ({
+                patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
                   ...current,
                   attempts: payload.attempts ?? current.attempts,
                 }));
 
                 if (payload.attempts?.length) {
                   payload.attempts.forEach((attempt, attemptIndex) => {
-                    appendModelLog(
+                    appendTaskModelLog(
+                      generationTaskId,
                       model.modelId,
                       formatAttemptLogLine(
                         attempt,
@@ -965,20 +1422,16 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               : "Unable to generate this model in the current session.";
 
           failedCount += 1;
-          patchSessionModel(model.modelId, (current) => ({
+          patchTaskSessionModel(generationTaskId, model.modelId, (current) => ({
             ...current,
             status: "error",
             error: message,
             finalHtml: null,
           }));
-          appendModelLog(model.modelId, `Generation failed: ${message}`);
+          appendTaskModelLog(generationTaskId, model.modelId, `Generation failed: ${message}`);
           setActiveMainTab("app");
         }
       }
-
-      setGenerationLoading(false);
-      setActiveGeneratingModelId(null);
-      setGenerationStatus(null);
 
       if (failedCount > 0) {
         setGenerationError(
@@ -989,18 +1442,71 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
           `Generated ${selectedModels.length} model output${selectedModels.length > 1 ? "s" : ""} in this session only.`,
         );
       }
+    } finally {
+      setGenerationLoading(false);
+      setActiveGeneratingTaskId(null);
+      setActiveGeneratingModelId(null);
+      setGenerationStatus(null);
+    }
+  }, [
+    activeTaskContext,
+    activeTaskId,
+    appendTaskModelLog,
+    generationBillTo,
+    hfApiKey,
+    loadOAuthState,
+    patchTaskSessionModel,
+    setActiveSelectedModelId,
+    setActiveSessionModels,
+    skillContent,
+    selectedModels,
+  ]);
 
+  const handleGenerateSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      await runGeneration();
     },
-    [
-      appendModelLog,
-      generationBillTo,
-      hfApiKey,
-      loadOAuthState,
-      patchSessionModel,
-      skillContent,
-      selectedModels,
-    ],
+    [runGeneration],
   );
+
+  const handleGenerateAction = useCallback(async () => {
+    setGenerationError(null);
+
+    if (generationLoading) {
+      return;
+    }
+
+    if (!selectedModels.length) {
+      setGenerationError("Select at least one model to generate.");
+      return;
+    }
+
+    if (oauthStatusLoading) {
+      const snapshot = await loadOAuthState();
+      if (snapshot.connected) {
+        await runGeneration();
+        return;
+      }
+
+      setIsGenerateModalOpen(true);
+      return;
+    }
+
+    if (oauthConnected) {
+      await runGeneration();
+      return;
+    }
+
+    setIsGenerateModalOpen(true);
+  }, [
+    generationLoading,
+    loadOAuthState,
+    oauthConnected,
+    oauthStatusLoading,
+    runGeneration,
+    selectedModels.length,
+  ]);
 
   const handleSearchInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -1062,6 +1568,102 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             </div>
             <ThemeToggle />
           </div>
+
+          <Card className="gap-3 py-3">
+            <CardHeader className="px-3">
+              <CardTitle className="text-sm">Tasks</CardTitle>
+              <CardDescription className="text-xs">
+                Choose a benchmark task. Model picks, skills, and outputs are kept per task.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2.5 px-3">
+              <div className="space-y-2">
+                {TASK_OPTIONS.map((task) => {
+                  const isActive = task.id === activeTaskId;
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => {
+                        if (!generationLoading) {
+                          setActiveTaskId(task.id);
+                        }
+                      }}
+                      disabled={generationLoading}
+                      className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                        isActive
+                          ? "border-primary bg-primary/5"
+                          : "border-border bg-background hover:bg-muted/70"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      <p className="text-sm font-medium">{task.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{task.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {activeTaskId === "image_to_code" ? (
+                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
+                  <label htmlFor="image-reference-select" className="text-xs font-medium text-foreground">
+                    Mockup Reference
+                  </label>
+                  <select
+                    id="image-reference-select"
+                    aria-label="Image-to-Code reference"
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    value={activeImageReferenceId}
+                    disabled={generationLoading}
+                    onChange={(event) =>
+                      setActiveImageReferenceId(event.target.value as ImageToCodeReference["id"])
+                    }
+                  >
+                    {IMAGE_TO_CODE_REFERENCES.map((reference) => (
+                      <option key={reference.id} value={reference.id}>
+                        {reference.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {selectedImageReference.description}
+                  </p>
+                </div>
+              ) : null}
+
+              {activeTaskId === "clone_website" ? (
+                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
+                  <label htmlFor="clone-target-select" className="text-xs font-medium text-foreground">
+                    Clone Target
+                  </label>
+                  <select
+                    id="clone-target-select"
+                    aria-label="Clone website target"
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    value={activeCloneTargetId}
+                    disabled={generationLoading}
+                    onChange={(event) =>
+                      setActiveCloneTargetId(event.target.value as CloneWebsiteTarget["id"])
+                    }
+                  >
+                    {CLONE_WEBSITE_TARGETS.map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {selectedCloneTarget.referenceNotes}
+                  </p>
+                </div>
+              ) : null}
+
+              {activeTaskId === "multistep_form" ? (
+                <p className="rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+                  Variant: SaaS onboarding (Account, Company, Team Invite, Plan/Billing, Review).
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
 
           <Card className="gap-3 py-3">
             <CardHeader className="px-3">
@@ -1155,8 +1757,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   variant="accent"
                   disabled={!canOpenGenerateModal || generationLoading}
                   onClick={() => {
-                    setGenerationError(null);
-                    setIsGenerateModalOpen(true);
+                    void handleGenerateAction();
                   }}
                 >
                   Generate Selected
@@ -1240,7 +1841,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             <CardHeader className="px-3">
               <CardTitle className="text-sm">Session Models</CardTitle>
               <CardDescription className="text-xs">
-                Baseline plus selected models to compare.
+                Task reference plus selected models to compare.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 px-3">
@@ -1250,7 +1851,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   <button
                     key={model.modelId}
                     type="button"
-                    onClick={() => setSelectedModelId(model.modelId)}
+                    onClick={() => setActiveSelectedModelId(model.modelId)}
                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                       isActive
                         ? "border-primary bg-primary/5"
@@ -1268,7 +1869,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             </CardContent>
           </Card>
 
-          <PromptCard prompt={prompt} promptVersion={promptVersion} />
+          <PromptCard prompt={activePrompt} promptVersion={activeTaskDefinition.promptVersion} />
         </aside>
 
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
@@ -1453,7 +2054,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
               </div>
             </CardHeader>
             <CardContent className="px-4">
-              <form className="space-y-2.5" onSubmit={handleGenerate}>
+              <form className="space-y-2.5" onSubmit={handleGenerateSubmit}>
                 {showOAuthControls ? (
                   <div className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
                     <div className="flex items-center justify-between gap-2">

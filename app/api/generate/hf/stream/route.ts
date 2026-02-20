@@ -23,8 +23,13 @@ import { inferVendorFromModelId } from "@/lib/models";
 import {
   buildPromptWithSkill,
   MAX_SKILL_CONTENT_CHARS,
-  SHARED_PROMPT,
 } from "@/lib/prompt";
+import {
+  buildTaskPrompt,
+  getTaskDefinition,
+  resolveTaskRequest,
+  TaskValidationError,
+} from "@/lib/tasks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,8 +38,11 @@ interface GeneratePayload {
   hfApiKey?: string;
   modelId?: string;
   provider?: string;
+  providers?: string[];
   billTo?: string;
   skillContent?: string;
+  taskId?: string;
+  taskContext?: unknown;
 }
 
 type StreamEventPayload =
@@ -115,6 +123,32 @@ function parseModelAndProvider(
   return { modelId, provider: provider?.toLowerCase() };
 }
 
+function parseProviderCandidates(providerInputs: string[] | undefined): string[] {
+  if (!providerInputs?.length) {
+    return [];
+  }
+
+  const unique = new Set<string>();
+
+  for (const rawProvider of providerInputs) {
+    const provider = rawProvider.trim().toLowerCase();
+    if (!provider || provider === "auto") {
+      continue;
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)) {
+      throw new ArtifactError("Provider format is invalid.", 400);
+    }
+
+    unique.add(provider);
+    if (unique.size >= 8) {
+      break;
+    }
+  }
+
+  return [...unique];
+}
+
 async function getBaselineHtml(): Promise<string> {
   const artifact = await getArtifactByModelId("baseline");
   if (artifact?.html) {
@@ -138,6 +172,7 @@ function buildAttemptStartMessage(
 }
 
 export async function POST(request: NextRequest) {
+  let requestedTaskId = "html_redesign";
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     return jsonError("Content-Type must be application/json.", 415);
@@ -145,10 +180,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = (await request.json()) as GeneratePayload;
+    requestedTaskId = typeof payload.taskId === "string" ? payload.taskId : "html_redesign";
     const rawHfApiKey = payload.hfApiKey?.trim();
     const modelInput = payload.modelId?.trim();
     const billTo = payload.billTo?.trim();
     const normalizedSkillContent = payload.skillContent?.trim();
+    const { taskId, taskContext } = resolveTaskRequest(payload.taskId, payload.taskContext);
+    const taskDefinition = getTaskDefinition(taskId);
 
     if (!modelInput) {
       return jsonError("Model ID is required.", 400);
@@ -166,15 +204,19 @@ export async function POST(request: NextRequest) {
     }
 
     const { modelId, provider } = parseModelAndProvider(modelInput, payload.provider);
+    const providers = parseProviderCandidates(payload.providers);
     const hfApiKey = resolveHfApiKeyFromRequest(request, rawHfApiKey);
-    const baselineHtml = await getBaselineHtml();
-    const prompt = buildPromptWithSkill(SHARED_PROMPT, normalizedSkillContent);
-    const plannedAttempts = buildHfAttemptPlan(modelId, provider);
+    const baselineHtml = taskDefinition.usesBaselineArtifact ? await getBaselineHtml() : "";
+    const basePrompt = buildTaskPrompt(taskId, taskContext);
+    const prompt = buildPromptWithSkill(basePrompt, normalizedSkillContent);
+    const plannedAttempts = buildHfAttemptPlan(modelId, provider, providers);
     const encoder = new TextEncoder();
 
     logGenerateStreamRoute("info", "request_validated", {
+      taskId,
       modelId,
       provider: provider ?? "auto",
+      providerCandidates: providers,
       generationTimeoutMs: process.env.GENERATION_TIMEOUT_MS ?? "default",
       generationMaxTokens: process.env.GENERATION_MAX_TOKENS ?? "default",
       hasSkill: Boolean(normalizedSkillContent),
@@ -195,6 +237,7 @@ export async function POST(request: NextRequest) {
         void (async () => {
           try {
             enqueue("meta", {
+              taskId,
               modelId,
               provider: provider ?? null,
               plannedAttempts: plannedAttempts.length,
@@ -204,6 +247,7 @@ export async function POST(request: NextRequest) {
               hfApiKey,
               modelId,
               provider,
+              providers: providers.length > 0 ? providers : undefined,
               billTo: billTo || undefined,
               prompt,
               baselineHtml,
@@ -284,6 +328,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof ArtifactError) {
+      return jsonError(error.message, error.status);
+    }
+
+    if (error instanceof TaskValidationError) {
+      logGenerateStreamRoute("warn", "request_rejected_task_context", {
+        taskId: requestedTaskId,
+        status: error.status,
+        message: error.message,
+      });
       return jsonError(error.message, error.status);
     }
 
