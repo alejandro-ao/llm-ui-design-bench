@@ -32,31 +32,36 @@ export const PROVIDER_OPTIONS: ProviderOption[] = [
 
 export const OPENAI_MODEL_PRESETS: ProviderModelPreset[] = [
   {
+    modelId: "gpt-5.2",
+    label: "GPT-5.2",
+    vendor: "openai",
+  },
+  {
+    modelId: "gpt-5-mini",
+    label: "GPT-5 mini",
+    vendor: "openai",
+  },
+  {
+    modelId: "gpt-5-nano",
+    label: "GPT-5 nano",
+    vendor: "openai",
+  },
+  {
     modelId: "gpt-4.1",
     label: "GPT-4.1",
-    vendor: "openai",
-  },
-  {
-    modelId: "gpt-4o",
-    label: "GPT-4o",
-    vendor: "openai",
-  },
-  {
-    modelId: "gpt-4o-mini",
-    label: "GPT-4o Mini",
     vendor: "openai",
   },
 ];
 
 export const ANTHROPIC_MODEL_PRESETS: ProviderModelPreset[] = [
   {
-    modelId: "claude-3-7-sonnet-latest",
-    label: "Claude 3.7 Sonnet",
+    modelId: "claude-opus-4-1-20250805",
+    label: "Claude Opus 4.1",
     vendor: "anthropic",
   },
   {
-    modelId: "claude-3-5-sonnet-latest",
-    label: "Claude 3.5 Sonnet",
+    modelId: "claude-sonnet-4-20250514",
+    label: "Claude Sonnet 4",
     vendor: "anthropic",
   },
   {
@@ -68,18 +73,18 @@ export const ANTHROPIC_MODEL_PRESETS: ProviderModelPreset[] = [
 
 export const GOOGLE_MODEL_PRESETS: ProviderModelPreset[] = [
   {
-    modelId: "gemini-2.5-pro",
-    label: "Gemini 2.5 Pro",
+    modelId: "gemini-3-pro-preview",
+    label: "Gemini 3 Pro (Preview)",
+    vendor: "google",
+  },
+  {
+    modelId: "gemini-3-flash-preview",
+    label: "Gemini 3 Flash (Preview)",
     vendor: "google",
   },
   {
     modelId: "gemini-2.5-flash",
     label: "Gemini 2.5 Flash",
-    vendor: "google",
-  },
-  {
-    modelId: "gemini-2.0-flash",
-    label: "Gemini 2.0 Flash",
     vendor: "google",
   },
 ];

@@ -116,7 +116,7 @@ export async function generateHtmlWithOpenAi({
     const payload = await client.chat.completions.create({
       model: modelId,
       temperature: 0.2,
-      max_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+      max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
       messages: [
         {
           role: "system",
@@ -187,7 +187,7 @@ export async function generateHtmlWithOpenAiStreamed({
     const stream = await client.chat.completions.create({
       model: modelId,
       temperature: 0.2,
-      max_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+      max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
       messages: [
         {
           role: "system",
