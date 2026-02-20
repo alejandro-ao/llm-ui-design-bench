@@ -234,14 +234,14 @@ describe("POST /api/generate/hf/stream", () => {
     expect(calledInput.prompt).toContain("--- END USER SKILL ---");
   });
 
-  it("accepts clone_website task context and includes taskId in stream meta", async () => {
+  it("accepts image_to_code task context and includes taskId in stream meta", async () => {
     const projectRoot = await createProjectRoot();
     process.env.PROJECT_ROOT = projectRoot;
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     generateStreamMock.mockResolvedValue({
-      html: "<!doctype html><html><body>clone output</body></html>",
+      html: "<!doctype html><html><body>image output</body></html>",
       usedModel: "moonshotai/kimi-k2-instruct",
       usedProvider: "auto",
       attempts: [
@@ -264,11 +264,10 @@ describe("POST /api/generate/hf/stream", () => {
         body: JSON.stringify({
           hfApiKey: "hf_test_key",
           modelId: "moonshotai/kimi-k2-instruct",
-          taskId: "clone_website",
+          taskId: "image_to_code",
           taskContext: {
-            targetId: "airbnb_home",
-            screenshotUrl: "http://localhost/task-assets/clone/airbnb-home.svg",
-            referenceNotes: "Match layout and spacing rhythm.",
+            imageId: "dashboard_a",
+            imageUrl: "http://localhost/task-assets/image-to-code/dashboard-a.svg",
           },
         }),
       }),
@@ -283,7 +282,7 @@ describe("POST /api/generate/hf/stream", () => {
     }>(rawStream, "meta");
 
     expect(metaPayload).toMatchObject({
-      taskId: "clone_website",
+      taskId: "image_to_code",
       modelId: "moonshotai/kimi-k2-instruct",
       plannedAttempts: 1,
     });
@@ -293,9 +292,9 @@ describe("POST /api/generate/hf/stream", () => {
       baselineHtml: string;
     };
     expect(calledInput.baselineHtml).toBe("");
-    expect(calledInput.prompt).toContain("Target website: Airbnb Home");
+    expect(calledInput.prompt).toContain("Reference image label: Dashboard - Data Dense");
     expect(calledInput.prompt).toContain(
-      "Reference screenshot URL: http://localhost/task-assets/clone/airbnb-home.svg",
+      "Reference image URL: http://localhost/task-assets/image-to-code/dashboard-a.svg",
     );
   });
 

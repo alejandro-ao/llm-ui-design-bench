@@ -28,14 +28,12 @@ import { Input } from "@/components/ui/input";
 import { MAX_SKILL_CONTENT_CHARS } from "@/lib/prompt";
 import {
   buildTaskPrompt,
-  CLONE_WEBSITE_TARGETS,
   DEFAULT_TASK_ID,
   getImageToCodeReference,
   getTaskDefinition,
   IMAGE_TO_CODE_REFERENCES,
   listTaskOptions,
   resolveAssetUrl,
-  type CloneWebsiteTarget,
   type ImageToCodeReference,
   type TaskContext,
   type TaskId,
@@ -61,7 +59,6 @@ const OAUTH_SESSION_NOT_PERSISTED_MESSAGE =
 const TASK_OPTIONS = listTaskOptions();
 const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
 const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "dashboard_a";
-const DEFAULT_CLONE_TARGET_ID = CLONE_WEBSITE_TARGETS[0]?.id ?? "airbnb_home";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -426,7 +423,6 @@ function getStatusBadge(status: SessionModelStatus) {
 
 function buildInitialTaskModels(): TaskModelMap {
   const defaultImageReference = getImageToCodeReference(DEFAULT_IMAGE_REFERENCE_ID);
-  const defaultCloneTarget = CLONE_WEBSITE_TARGETS[0];
 
   return {
     html_redesign: [buildInitialBaselineModel()],
@@ -446,16 +442,6 @@ function buildInitialTaskModels(): TaskModelMap {
           "Image to Code Reference",
           defaultImageReference.description,
           defaultImageReference.assetPath,
-        ),
-      }),
-    ],
-    clone_website: [
-      buildInitialBaselineModel({
-        label: `Clone Target (${defaultCloneTarget?.label ?? "Website"})`,
-        html: buildReferenceHtml(
-          defaultCloneTarget?.label ?? "Clone Website",
-          defaultCloneTarget?.description ?? "Clone this visual style using static HTML/CSS/JS.",
-          defaultCloneTarget?.assetPath,
         ),
       }),
     ],
@@ -494,8 +480,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const [skillError, setSkillError] = useState<string | null>(null);
   const [activeImageReferenceId, setActiveImageReferenceId] =
     useState<ImageToCodeReference["id"]>(DEFAULT_IMAGE_REFERENCE_ID);
-  const [activeCloneTargetId, setActiveCloneTargetId] =
-    useState<CloneWebsiteTarget["id"]>(DEFAULT_CLONE_TARGET_ID);
   const [clientOrigin, setClientOrigin] = useState("http://localhost");
 
   const [hfApiKey, setHfApiKey] = useState("");
@@ -530,20 +514,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     () => getImageToCodeReference(activeImageReferenceId),
     [activeImageReferenceId],
   );
-  const selectedCloneTarget = useMemo(
-    () => {
-      const target =
-        CLONE_WEBSITE_TARGETS.find((item) => item.id === activeCloneTargetId) ??
-        CLONE_WEBSITE_TARGETS[0];
-
-      if (!target) {
-        throw new Error("Clone website targets are not configured.");
-      }
-
-      return target;
-    },
-    [activeCloneTargetId],
-  );
   const activeTaskContext = useMemo((): TaskContext => {
     if (activeTaskId === "html_redesign") {
       return {} as Record<string, never>;
@@ -563,11 +533,10 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     }
 
     return {
-      targetId: selectedCloneTarget.id,
-      screenshotUrl: resolveAssetUrl(clientOrigin, selectedCloneTarget.assetPath),
-      referenceNotes: selectedCloneTarget.referenceNotes,
+      imageId: selectedImageReference.id,
+      imageUrl: resolveAssetUrl(clientOrigin, selectedImageReference.assetPath),
     };
-  }, [activeTaskId, clientOrigin, selectedCloneTarget, selectedImageReference]);
+  }, [activeTaskId, clientOrigin, selectedImageReference]);
   const activePrompt = useMemo(
     () => buildTaskPrompt(activeTaskId, activeTaskContext),
     [activeTaskContext, activeTaskId],
@@ -828,32 +797,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
       error: null,
     }));
   }, [activeImageReferenceId, patchTaskSessionModel]);
-
-  useEffect(() => {
-    const cloneTarget =
-      CLONE_WEBSITE_TARGETS.find((target) => target.id === activeCloneTargetId) ??
-      CLONE_WEBSITE_TARGETS[0];
-
-    if (!cloneTarget) {
-      return;
-    }
-
-    patchTaskSessionModel("clone_website", BASELINE_MODEL_ID, (model) => ({
-      ...model,
-      label: `Clone Target (${cloneTarget.label})`,
-      finalHtml: buildReferenceHtml(
-        cloneTarget.label,
-        cloneTarget.description,
-        cloneTarget.assetPath,
-      ),
-      streamedHtml: buildReferenceHtml(
-        cloneTarget.label,
-        cloneTarget.description,
-        cloneTarget.assetPath,
-      ),
-      error: null,
-    }));
-  }, [activeCloneTargetId, patchTaskSessionModel]);
 
   useEffect(() => {
     let active = true;
@@ -1626,33 +1569,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   </select>
                   <p className="text-[11px] text-muted-foreground">
                     {selectedImageReference.description}
-                  </p>
-                </div>
-              ) : null}
-
-              {activeTaskId === "clone_website" ? (
-                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
-                  <label htmlFor="clone-target-select" className="text-xs font-medium text-foreground">
-                    Clone Target
-                  </label>
-                  <select
-                    id="clone-target-select"
-                    aria-label="Clone website target"
-                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
-                    value={activeCloneTargetId}
-                    disabled={generationLoading}
-                    onChange={(event) =>
-                      setActiveCloneTargetId(event.target.value as CloneWebsiteTarget["id"])
-                    }
-                  >
-                    {CLONE_WEBSITE_TARGETS.map((target) => (
-                      <option key={target.id} value={target.id}>
-                        {target.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-muted-foreground">
-                    {selectedCloneTarget.referenceNotes}
                   </p>
                 </div>
               ) : null}

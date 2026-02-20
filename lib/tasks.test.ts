@@ -38,18 +38,6 @@ describe("resolveTaskRequest", () => {
     ).toThrow("taskContext.imageUrl must be an absolute http(s) URL.");
   });
 
-  it("accepts valid clone_website context", () => {
-    const resolved = resolveTaskRequest("clone_website", {
-      targetId: "airbnb_home",
-      screenshotUrl: "https://example.com/clone/airbnb-home.png",
-      referenceNotes: "Match layout and spacing rhythm.",
-    });
-
-    expect(resolved.taskId).toBe("clone_website");
-    expect(resolved.taskContext).toMatchObject({
-      targetId: "airbnb_home",
-    });
-  });
 });
 
 describe("buildTaskPrompt", () => {
@@ -68,14 +56,4 @@ describe("buildTaskPrompt", () => {
     expect(prompt).toContain("Recreate the provided mockup image");
   });
 
-  it("builds clone_website prompt with target notes", () => {
-    const prompt = buildTaskPrompt("clone_website", {
-      targetId: "stripe_home",
-      screenshotUrl: "https://example.com/stripe.png",
-      referenceNotes: "Use strong gradient atmosphere.",
-    });
-
-    expect(prompt).toContain("Target website: Stripe Home");
-    expect(prompt).toContain("Reference notes: Use strong gradient atmosphere.");
-  });
 });

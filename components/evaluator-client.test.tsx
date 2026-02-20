@@ -609,13 +609,13 @@ describe("EvaluatorClient", () => {
     await saveSkillContent("HTML redesign skill.");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Clone Website/i }));
+    await user.click(screen.getByRole("button", { name: /Image to Code/i }));
 
     expect(screen.getByText("No models selected yet.")).toBeInTheDocument();
     expect(screen.getByText("No skill attached.")).toBeInTheDocument();
 
     await addModelFromSearch("minimax", "MiniMax-M1");
-    await saveSkillContent("Clone task skill.");
+    await saveSkillContent("Image task skill.");
 
     await user.click(screen.getByRole("button", { name: /HTML to HTML Redesign/i }));
 

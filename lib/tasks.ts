@@ -3,8 +3,7 @@ import { SHARED_PROMPT } from "@/lib/prompt";
 export type TaskId =
   | "html_redesign"
   | "multistep_form"
-  | "image_to_code"
-  | "clone_website";
+  | "image_to_code";
 
 export interface TaskDefinition {
   id: TaskId;
@@ -27,14 +26,6 @@ export interface ImageToCodeReference {
   assetPath: string;
 }
 
-export interface CloneWebsiteTarget {
-  id: "airbnb_home" | "stripe_home" | "notion_home";
-  label: string;
-  description: string;
-  assetPath: string;
-  referenceNotes: string;
-}
-
 export interface MultistepFormTaskContext {
   formVariant: "saas_onboarding";
 }
@@ -44,17 +35,10 @@ export interface ImageToCodeTaskContext {
   imageUrl: string;
 }
 
-export interface CloneWebsiteTaskContext {
-  targetId: CloneWebsiteTarget["id"];
-  screenshotUrl: string;
-  referenceNotes: string;
-}
-
 export interface TaskContextById {
   html_redesign: Record<string, never>;
   multistep_form: MultistepFormTaskContext;
   image_to_code: ImageToCodeTaskContext;
-  clone_website: CloneWebsiteTaskContext;
 }
 
 export type TaskContext = TaskContextById[TaskId];
@@ -92,33 +76,6 @@ export const IMAGE_TO_CODE_REFERENCES: ImageToCodeReference[] = [
   },
 ];
 
-export const CLONE_WEBSITE_TARGETS: CloneWebsiteTarget[] = [
-  {
-    id: "airbnb_home",
-    label: "Airbnb Home",
-    description: "Marketplace-style homepage with search, categories, cards, and destination imagery.",
-    assetPath: "/task-assets/clone/airbnb-home.svg",
-    referenceNotes:
-      "Recreate Airbnb-like marketplace rhythm: sticky search header, category chips, and destination cards with rounded corners and clean spacing.",
-  },
-  {
-    id: "stripe_home",
-    label: "Stripe Home",
-    description: "Gradient-heavy fintech hero with structured sections and product rails.",
-    assetPath: "/task-assets/clone/stripe-home.svg",
-    referenceNotes:
-      "Prioritize Stripe-inspired gradient atmosphere, geometric layout blocks, and crisp enterprise typography hierarchy.",
-  },
-  {
-    id: "notion_home",
-    label: "Notion Home",
-    description: "Minimal product marketing page with calm typography and modular cards.",
-    assetPath: "/task-assets/clone/notion-home.svg",
-    referenceNotes:
-      "Match Notion-like restrained design language, monochrome base palette, and playful supporting illustration blocks.",
-  },
-];
-
 const TASK_DEFINITIONS: TaskDefinition[] = [
   {
     id: "html_redesign",
@@ -141,13 +98,6 @@ const TASK_DEFINITIONS: TaskDefinition[] = [
     promptVersion: "v1",
     usesBaselineArtifact: false,
   },
-  {
-    id: "clone_website",
-    label: "Clone Website",
-    description: "Clone the visual design of a curated target website using static mocked interactions.",
-    promptVersion: "v1",
-    usesBaselineArtifact: false,
-  },
 ];
 
 const TASK_DEFINITION_LOOKUP = new Map<TaskId, TaskDefinition>(
@@ -156,10 +106,6 @@ const TASK_DEFINITION_LOOKUP = new Map<TaskId, TaskDefinition>(
 
 const IMAGE_REFERENCE_LOOKUP = new Map<ImageToCodeReference["id"], ImageToCodeReference>(
   IMAGE_TO_CODE_REFERENCES.map((reference) => [reference.id, reference]),
-);
-
-const CLONE_TARGET_LOOKUP = new Map<CloneWebsiteTarget["id"], CloneWebsiteTarget>(
-  CLONE_WEBSITE_TARGETS.map((target) => [target.id, target]),
 );
 
 function normalizeStringField(
@@ -212,29 +158,6 @@ function validateImageUrl(imageUrl: string): string {
   }
 }
 
-function validateScreenshotUrl(screenshotUrl: string): string {
-  if (!screenshotUrl) {
-    throw new TaskValidationError("taskContext.screenshotUrl is required.", 400);
-  }
-
-  try {
-    const parsed = new URL(screenshotUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new TaskValidationError(
-        "taskContext.screenshotUrl must be an absolute http(s) URL.",
-        400,
-      );
-    }
-
-    return parsed.toString();
-  } catch {
-    throw new TaskValidationError(
-      "taskContext.screenshotUrl must be an absolute http(s) URL.",
-      400,
-    );
-  }
-}
-
 function assertObjectContext(
   taskContext: unknown,
   taskId: TaskId,
@@ -274,17 +197,6 @@ export function getImageToCodeReference(
   return reference;
 }
 
-export function getCloneWebsiteTarget(
-  targetId: CloneWebsiteTarget["id"],
-): CloneWebsiteTarget {
-  const target = CLONE_TARGET_LOOKUP.get(targetId);
-  if (!target) {
-    throw new TaskValidationError("taskContext.targetId is invalid.", 400);
-  }
-
-  return target;
-}
-
 export function resolveAssetUrl(origin: string, assetPath: string): string {
   return new URL(assetPath, origin).toString();
 }
@@ -308,11 +220,10 @@ export function getDefaultTaskContext(taskId: TaskId): TaskContext {
     };
   }
 
-  const target = CLONE_WEBSITE_TARGETS[0];
+  const reference = IMAGE_TO_CODE_REFERENCES[0];
   return {
-    targetId: target.id,
-    screenshotUrl: target.assetPath,
-    referenceNotes: target.referenceNotes,
+    imageId: reference.id,
+    imageUrl: reference.assetPath,
   };
 }
 
@@ -376,28 +287,9 @@ export function resolveTaskRequest(
     };
   }
 
-  if (rawTaskContext == null) {
-    throw new TaskValidationError("taskContext is required for taskId \"clone_website\".", 400);
-  }
-
-  const context = assertObjectContext(rawTaskContext, taskId);
-  const targetId = normalizeStringField(context.targetId, "taskContext.targetId");
-  const target = getCloneWebsiteTarget(targetId as CloneWebsiteTarget["id"]);
-  const screenshotUrl = validateScreenshotUrl(
-    normalizeStringField(context.screenshotUrl, "taskContext.screenshotUrl"),
-  );
-  const referenceNotes = normalizeStringField(
-    context.referenceNotes,
-    "taskContext.referenceNotes",
-  );
-
   return {
     taskId,
-    taskContext: {
-      targetId: target.id,
-      screenshotUrl,
-      referenceNotes,
-    },
+    taskContext: fallback as TaskContextById["image_to_code"],
   };
 }
 
@@ -445,28 +337,6 @@ function buildImageToCodePrompt(context: ImageToCodeTaskContext): string {
   ].join("\n");
 }
 
-function buildCloneWebsitePrompt(context: CloneWebsiteTaskContext): string {
-  const target = getCloneWebsiteTarget(context.targetId);
-
-  return [
-    "Clone the visual design of the curated website reference using static HTML/CSS/JS.",
-    "",
-    `Target website: ${target.label}`,
-    `Reference screenshot URL: ${context.screenshotUrl}`,
-    `Reference notes: ${context.referenceNotes}`,
-    `Style summary: ${target.description}`,
-    "",
-    "Requirements:",
-    "- Prioritize visual fidelity for structure, spacing, typography rhythm, and overall look-and-feel.",
-    "- Implement with mocked data and static interactions only (no backend/database).",
-    "- Keep the page responsive and production-ready.",
-    "",
-    "Output constraints:",
-    "- Return one complete HTML file with embedded CSS and JS.",
-    "- No markdown fences, no explanations.",
-  ].join("\n");
-}
-
 export function buildTaskPrompt(taskId: TaskId, taskContext: TaskContext): string {
   if (taskId === "html_redesign") {
     return SHARED_PROMPT;
@@ -480,5 +350,5 @@ export function buildTaskPrompt(taskId: TaskId, taskContext: TaskContext): strin
     return buildImageToCodePrompt(taskContext as TaskContextById["image_to_code"]);
   }
 
-  return buildCloneWebsitePrompt(taskContext as TaskContextById["clone_website"]);
+  return buildImageToCodePrompt(taskContext as TaskContextById["image_to_code"]);
 }
