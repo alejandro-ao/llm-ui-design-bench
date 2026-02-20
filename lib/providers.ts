@@ -32,6 +32,11 @@ export const PROVIDER_OPTIONS: ProviderOption[] = [
 
 export const OPENAI_MODEL_PRESETS: ProviderModelPreset[] = [
   {
+    modelId: "gpt-5.1",
+    label: "GPT-5.1",
+    vendor: "openai",
+  },
+  {
     modelId: "gpt-5.2",
     label: "GPT-5.2",
     vendor: "openai",
@@ -54,6 +59,16 @@ export const OPENAI_MODEL_PRESETS: ProviderModelPreset[] = [
 ];
 
 export const ANTHROPIC_MODEL_PRESETS: ProviderModelPreset[] = [
+  {
+    modelId: "claude-opus-4-6",
+    label: "Claude Opus 4.6",
+    vendor: "anthropic",
+  },
+  {
+    modelId: "claude-sonnet-4-6",
+    label: "Claude Sonnet 4.6",
+    vendor: "anthropic",
+  },
   {
     modelId: "claude-opus-4-1-20250805",
     label: "Claude Opus 4.1",
