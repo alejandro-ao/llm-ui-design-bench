@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 import type { NextResponse } from "next/server";
 
@@ -50,6 +50,14 @@ function createSessionError(
 
 function normalizeSessionSecret(rawSecret: string): Buffer {
   const trimmed = rawSecret.trim();
+  if (!trimmed) {
+    throw createSessionError(
+      "HF_SESSION_COOKIE_SECRET is required for Hugging Face OAuth session storage.",
+      "misconfigured",
+      500,
+    );
+  }
+
   const decoded = Buffer.from(trimmed, "base64url");
   if (decoded.length === 32) {
     return decoded;
@@ -60,18 +68,22 @@ function normalizeSessionSecret(rawSecret: string): Buffer {
     return fallbackDecoded;
   }
 
-  throw createSessionError(
-    "HF_SESSION_COOKIE_SECRET must decode to exactly 32 bytes.",
-    "misconfigured",
-    500,
-  );
+  if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+    return Buffer.from(trimmed, "hex");
+  }
+
+  // Accept arbitrary non-empty secrets by deriving a fixed-size key.
+  return createHash("sha256").update(trimmed, "utf8").digest();
 }
 
 function resolveSessionSecret(): Buffer {
-  const rawSecret = process.env.HF_SESSION_COOKIE_SECRET?.trim();
+  const rawSecret =
+    process.env.HF_SESSION_COOKIE_SECRET?.trim() ||
+    process.env.OAUTH_CLIENT_SECRET?.trim() ||
+    process.env.HF_OAUTH_CLIENT_SECRET?.trim();
   if (!rawSecret) {
     throw createSessionError(
-      "HF_SESSION_COOKIE_SECRET is required for Hugging Face OAuth session storage.",
+      "HF_SESSION_COOKIE_SECRET (or OAuth client secret) is required for Hugging Face OAuth session storage.",
       "misconfigured",
       500,
     );

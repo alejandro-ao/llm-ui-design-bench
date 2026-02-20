@@ -75,7 +75,7 @@ OAuth is supported in both Spaces and non-Space hosting.
 
 Checklist:
 1. Ensure `hf_oauth: true` is present in this `README.md` frontmatter.
-2. In Space Settings, set `HF_SESSION_COOKIE_SECRET` (32-byte base64/base64url secret).
+2. In Space Settings, set `HF_SESSION_COOKIE_SECRET` (recommended, 32-byte base64/base64url secret).
 3. Redeploy the Space after metadata/env changes.
 
 With this enabled, Hugging Face injects:
@@ -85,6 +85,8 @@ With this enabled, Hugging Face injects:
    - `OPENID_PROVIDER_URL`
    - `SPACE_HOST`
 Callback URL is `/oauth/callback` on your app domain. In Spaces, this app resolves the redirect origin from `SPACE_HOST` automatically. You can override with `HF_PUBLIC_ORIGIN` if needed.
+
+If `HF_SESSION_COOKIE_SECRET` is not set, session-cookie encryption falls back to OAuth client-secret envs (`OAUTH_CLIENT_SECRET` in Spaces, `HF_OAUTH_CLIENT_SECRET` in custom deployments).
 
 OAuth exchange method selection:
 - `client_secret` when `OAUTH_CLIENT_SECRET` is available (Space-first default).

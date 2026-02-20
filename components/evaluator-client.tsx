@@ -40,7 +40,7 @@ const SKILL_TOO_LONG_MESSAGE = `Skill must be ${MAX_SKILL_CONTENT_CHARS} charact
 const OAUTH_UNAVAILABLE_MESSAGE =
   "OAuth is not configured on this deployment. For Hugging Face Spaces, add `hf_oauth: true` to README metadata and redeploy. You can still use API key fallback.";
 const OAUTH_SECRET_MISCONFIGURED_MESSAGE =
-  "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET in your Space secrets (32-byte base64/base64url) and redeploy.";
+  "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET (recommended) or ensure OAuth client secret env vars are available, then redeploy.";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";

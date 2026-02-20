@@ -29,6 +29,7 @@ interface ParsedOAuthState {
   nonce: string;
   redirectUri?: string;
   codeVerifier?: string;
+  stateFormat: "legacy_json" | "state_token";
 }
 
 function jsonError(message: string, status: number) {
@@ -67,6 +68,7 @@ function parseOAuthState(rawState: string, expectedNonce: string): ParsedOAuthSt
       typeof state.redirectUri === "string" && state.redirectUri.trim()
         ? state.redirectUri.trim()
         : undefined,
+    stateFormat: "legacy_json",
   };
 }
 
@@ -101,11 +103,12 @@ function parseStateWithFallback(input: {
     input.expectedRedirectUri,
   );
 
-  return {
-    nonce: parsedState.nonce,
-    redirectUri: parsedState.redirectUri,
-    codeVerifier: parsedState.codeVerifier,
-  };
+    return {
+      nonce: parsedState.nonce,
+      redirectUri: parsedState.redirectUri,
+      codeVerifier: parsedState.codeVerifier,
+      stateFormat: "state_token",
+    };
 }
 
 async function resolveTokenEndpoint(providerOrigin: string): Promise<string> {
@@ -202,6 +205,22 @@ export async function POST(request: NextRequest) {
     const stateRaw = payload.state?.trim();
     const cookiePkce = readHfOAuthPkceCookies(request);
 
+    console.info("[api/auth/hf/exchange] exchange_request_received", {
+      requestId,
+      exchangeMethod: config.exchangeMethod,
+      hasCode: Boolean(code),
+      hasState: Boolean(stateRaw),
+      stateChars: stateRaw?.length ?? 0,
+      hasPayloadRedirectUri: Boolean(payload.redirectUri?.trim()),
+      hasPayloadNonce: Boolean(payload.nonce?.trim()),
+      hasPayloadCodeVerifier: Boolean(payload.codeVerifier?.trim()),
+      hasCookieNonce: Boolean(cookiePkce.nonce),
+      hasCookieCodeVerifier: Boolean(cookiePkce.codeVerifier),
+      hasSessionCookieSecret: Boolean(process.env.HF_SESSION_COOKIE_SECRET?.trim()),
+      hasSpaceOAuthClientSecret: Boolean(process.env.OAUTH_CLIENT_SECRET?.trim()),
+      hasCustomOAuthClientSecret: Boolean(process.env.HF_OAUTH_CLIENT_SECRET?.trim()),
+    });
+
     if (!code || !stateRaw) {
       console.warn("[api/auth/hf/exchange] exchange_rejected_missing_payload", {
         requestId,
@@ -227,6 +246,14 @@ export async function POST(request: NextRequest) {
       });
       return jsonError(message, 400);
     }
+
+    console.info("[api/auth/hf/exchange] exchange_state_validated", {
+      requestId,
+      exchangeMethod: config.exchangeMethod,
+      stateFormat: parsedState.stateFormat,
+      hasStateRedirectUri: Boolean(parsedState.redirectUri),
+      hasStateCodeVerifier: Boolean(parsedState.codeVerifier),
+    });
 
     const redirectUri = resolveRedirectUri(
       configRedirectUri,
@@ -288,6 +315,15 @@ export async function POST(request: NextRequest) {
       exchangeBody.set("code_verifier", codeVerifier);
     }
 
+    console.info("[api/auth/hf/exchange] exchange_token_request", {
+      requestId,
+      exchangeMethod: config.exchangeMethod,
+      tokenEndpoint,
+      authMode: config.exchangeMethod === "client_secret" ? "basic" : "pkce",
+      hasCodeVerifier: exchangeBody.has("code_verifier"),
+      hasClientIdBodyParam: exchangeBody.has("client_id"),
+    });
+
     const tokenResponse = await fetch(tokenEndpoint, {
       method: "POST",
       headers: requestHeaders,
@@ -295,12 +331,27 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
 
-    const tokenPayload = (await tokenResponse.json().catch(() => ({}))) as {
+    const tokenResponseContentType = tokenResponse.headers.get("content-type") ?? "";
+    const tokenResponseText = await tokenResponse.text();
+    let tokenPayload: {
       access_token?: unknown;
       expires_in?: unknown;
       expires_at?: unknown;
       [key: string]: unknown;
-    };
+    } = {};
+
+    if (tokenResponseText.trim()) {
+      try {
+        tokenPayload = JSON.parse(tokenResponseText) as {
+          access_token?: unknown;
+          expires_in?: unknown;
+          expires_at?: unknown;
+          [key: string]: unknown;
+        };
+      } catch {
+        tokenPayload = {};
+      }
+    }
 
     if (!tokenResponse.ok) {
       const detail = extractProviderErrorDetail(tokenPayload);
@@ -309,6 +360,10 @@ export async function POST(request: NextRequest) {
         exchangeMethod: config.exchangeMethod,
         status: tokenResponse.status,
         providerDetail: detail,
+        tokenResponseContentType,
+        tokenResponseBodyChars: tokenResponseText.length,
+        tokenResponseBodyPreview:
+          detail || tokenResponseText.trim().slice(0, 160) || null,
       });
       return jsonError(
         detail
@@ -356,6 +411,13 @@ export async function POST(request: NextRequest) {
       requestId,
       exchangeMethod: config.exchangeMethod,
       hasExpiry: sessionPayload.expiresAt !== null,
+      sessionSecretSource: process.env.HF_SESSION_COOKIE_SECRET?.trim()
+        ? "HF_SESSION_COOKIE_SECRET"
+        : process.env.OAUTH_CLIENT_SECRET?.trim()
+          ? "OAUTH_CLIENT_SECRET"
+          : process.env.HF_OAUTH_CLIENT_SECRET?.trim()
+            ? "HF_OAUTH_CLIENT_SECRET"
+            : "missing",
     });
 
     return response;

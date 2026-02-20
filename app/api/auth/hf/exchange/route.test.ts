@@ -230,6 +230,66 @@ describe("POST /api/auth/hf/exchange", () => {
     expect(body).toContain("code_verifier=verifier_from_state");
   });
 
+  it("uses OAUTH_CLIENT_SECRET for session cookie encryption when HF_SESSION_COOKIE_SECRET is missing", async () => {
+    delete process.env.HF_SESSION_COOKIE_SECRET;
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token_endpoint: "https://huggingface.co/oauth/token",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "hf_oauth_access_token",
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stateToken = buildHfOAuthStateToken({
+      nonce: "nonce_123",
+      redirectUri: "http://localhost/oauth/callback",
+      issuedAt: Math.floor(Date.now() / 1000),
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/auth/hf/exchange", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "oauth_code_123",
+          state: stateToken,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      connected: true,
+    });
+    expect(response.headers.get("set-cookie") ?? "").toContain("hf_oauth_session=");
+  });
+
   it("rejects invalid, mismatched, and expired state tokens", async () => {
     const invalidResponse = await POST(
       new NextRequest("http://localhost/api/auth/hf/exchange", {
