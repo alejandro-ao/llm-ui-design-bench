@@ -181,4 +181,26 @@ describe("GET /api/auth/hf/start", () => {
       "https://alejandro-ao-design-evals.hf.space/oauth/callback",
     );
   });
+
+  it("sets pkce cookies with SameSite=None on Spaces deployments", async () => {
+    process.env.OAUTH_CLIENT_ID = "space_client_id";
+    delete process.env.OAUTH_CLIENT_SECRET;
+    delete process.env.HF_OAUTH_CLIENT_SECRET;
+    process.env.OAUTH_SCOPES = "openid profile";
+    process.env.OPENID_PROVIDER_URL = "https://huggingface.co";
+    process.env.SPACE_HOST = "alejandro-ao-design-evals.hf.space";
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/auth/hf/start", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(307);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("hf_oauth_nonce=");
+    expect(setCookie).toContain("hf_oauth_code_verifier=");
+    expect(setCookie).toContain("SameSite=none");
+    expect(setCookie).toContain("Secure");
+  });
 });

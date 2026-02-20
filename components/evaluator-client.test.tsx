@@ -452,7 +452,7 @@ describe("EvaluatorClient", () => {
     expect(screen.getByRole("button", { name: "Connect with Hugging Face" })).toBeInTheDocument();
   });
 
-  it("shows explicit Spaces OAuth setup guidance when OAuth is unavailable", async () => {
+  it("hides OAuth controls when OAuth is unavailable", async () => {
     oauthEnabled = false;
 
     render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
@@ -461,8 +461,8 @@ describe("EvaluatorClient", () => {
       expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/hf_oauth: true/i)).toBeInTheDocument();
-    expect(screen.getByText(/redeploy/i)).toBeInTheDocument();
+    expect(screen.queryByText("Hugging Face Auth")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect with Hugging Face" })).not.toBeInTheDocument();
   });
 
   it("renders sanitized oauth error message from callback query params", async () => {
@@ -481,6 +481,47 @@ describe("EvaluatorClient", () => {
     expect(
       screen.getByText("Unable to complete Hugging Face OAuth exchange: Invalid authorization code"),
     ).toBeInTheDocument();
+  });
+
+  it("does not show OAuth success when callback status is connected but no session is available", async () => {
+    window.history.replaceState({}, "", "/?oauth=connected");
+    oauthConnected = false;
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText("Connected with Hugging Face OAuth.")).not.toBeInTheDocument();
+  });
+
+  it("requires manual API key when OAuth is unavailable", async () => {
+    oauthEnabled = false;
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Add your Hugging Face API key to run generation.")).toBeInTheDocument();
+    });
   });
 
   it("includes saved skill content in generation requests", async () => {

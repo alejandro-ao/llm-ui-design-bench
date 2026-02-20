@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 import type { NextResponse } from "next/server";
+import { buildHfOAuthCookieBaseOptions } from "@/lib/hf-oauth-cookie-options";
 
 export const HF_OAUTH_SESSION_COOKIE_NAME = "hf_oauth_session";
 
@@ -220,29 +221,23 @@ export function getHfOAuthSessionFromCookies(cookies: CookieReader): HfOAuthSess
   return payload;
 }
 
-function buildCookieBaseOptions() {
-  return {
-    name: HF_OAUTH_SESSION_COOKIE_NAME,
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  };
-}
-
 export function setHfOAuthSessionCookie(
   response: NextResponse,
   payload: HfOAuthSessionPayload,
 ): void {
+  const cookieBaseOptions = buildHfOAuthCookieBaseOptions();
   response.cookies.set({
-    ...buildCookieBaseOptions(),
+    ...cookieBaseOptions,
+    name: HF_OAUTH_SESSION_COOKIE_NAME,
     value: sealHfOAuthSession(payload),
   });
 }
 
 export function clearHfOAuthSessionCookie(response: NextResponse): void {
+  const cookieBaseOptions = buildHfOAuthCookieBaseOptions();
   response.cookies.set({
-    ...buildCookieBaseOptions(),
+    ...cookieBaseOptions,
+    name: HF_OAUTH_SESSION_COOKIE_NAME,
     value: "",
     expires: new Date(0),
   });

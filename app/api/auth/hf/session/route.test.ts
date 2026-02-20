@@ -10,6 +10,7 @@ import {
 } from "@/app/api/auth/hf/session/route";
 
 const originalSecret = process.env.HF_SESSION_COOKIE_SECRET;
+const originalSpaceHost = process.env.SPACE_HOST;
 
 function extractCookieValue(setCookieHeader: string | null): string {
   if (!setCookieHeader) {
@@ -23,6 +24,7 @@ function extractCookieValue(setCookieHeader: string | null): string {
 describe("HF OAuth session route", () => {
   beforeEach(() => {
     process.env.HF_SESSION_COOKIE_SECRET = Buffer.alloc(32, 9).toString("base64url");
+    delete process.env.SPACE_HOST;
   });
 
   it("stores an oauth session and then reports connected", async () => {
@@ -89,6 +91,27 @@ describe("HF OAuth session route", () => {
     });
     expect(response.headers.get("set-cookie")).toContain("hf_oauth_session=");
   });
+
+  it("uses SameSite=None secure cookies on Spaces deployments", async () => {
+    process.env.SPACE_HOST = "owner-space.hf.space";
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/auth/hf/session", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          accessToken: "hf_oauth_access_token",
+          expiresAt: Math.floor(Date.now() / 1000) + 600,
+        }),
+      }),
+    );
+
+    const setCookieHeader = response.headers.get("set-cookie") ?? "";
+    expect(setCookieHeader).toContain("SameSite=none");
+    expect(setCookieHeader).toContain("Secure");
+  });
 });
 
 afterAll(() => {
@@ -96,5 +119,11 @@ afterAll(() => {
     delete process.env.HF_SESSION_COOKIE_SECRET;
   } else {
     process.env.HF_SESSION_COOKIE_SECRET = originalSecret;
+  }
+
+  if (originalSpaceHost === undefined) {
+    delete process.env.SPACE_HOST;
+  } else {
+    process.env.SPACE_HOST = originalSpaceHost;
   }
 });

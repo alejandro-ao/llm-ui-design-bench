@@ -41,6 +41,8 @@ const OAUTH_UNAVAILABLE_MESSAGE =
   "OAuth is not configured on this deployment. For Hugging Face Spaces, add `hf_oauth: true` to README metadata and redeploy. You can still use API key fallback.";
 const OAUTH_SECRET_MISCONFIGURED_MESSAGE =
   "OAuth session storage is misconfigured. Set HF_SESSION_COOKIE_SECRET (recommended) or ensure OAuth client secret env vars are available, then redeploy.";
+const OAUTH_SESSION_NOT_PERSISTED_MESSAGE =
+  "Hugging Face OAuth completed, but no active OAuth session is available. If you are in the embedded Spaces page, open the direct `*.hf.space` URL and reconnect.";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";
@@ -77,6 +79,12 @@ interface OAuthConfigResponse {
 interface OAuthSessionResponse {
   connected: boolean;
   expiresAt?: number | null;
+}
+
+interface OAuthStateSnapshot {
+  config: OAuthConfigResponse | null;
+  connected: boolean;
+  expiresAt: number | null;
 }
 
 interface GenerationAttempt {
@@ -325,7 +333,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
     [patchSessionModel],
   );
 
-  const loadOAuthState = useCallback(async () => {
+  const loadOAuthState = useCallback(async (): Promise<OAuthStateSnapshot> => {
     setOauthStatusLoading(true);
 
     try {
@@ -334,34 +342,51 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         fetch("/api/auth/hf/session", { cache: "no-store" }),
       ]);
 
+      let configPayload: OAuthConfigResponse | null = null;
       if (configResponse.ok) {
-        const configPayload = (await configResponse.json()) as OAuthConfigResponse;
-        setOauthConfig(configPayload);
-      } else {
-        setOauthConfig(null);
+        configPayload = (await configResponse.json()) as OAuthConfigResponse;
       }
+      setOauthConfig(configPayload);
 
+      let sessionConnected = false;
+      let sessionExpiresAt: number | null = null;
       if (sessionResponse.ok) {
         const sessionPayload = (await sessionResponse.json()) as OAuthSessionResponse;
-        setOauthConnected(Boolean(sessionPayload.connected));
-        setOauthExpiresAt(sessionPayload.connected ? (sessionPayload.expiresAt ?? null) : null);
-      } else {
-        setOauthConnected(false);
-        setOauthExpiresAt(null);
+        sessionConnected = Boolean(sessionPayload.connected);
+        sessionExpiresAt = sessionConnected ? (sessionPayload.expiresAt ?? null) : null;
       }
+      setOauthConnected(sessionConnected);
+      setOauthExpiresAt(sessionExpiresAt);
 
       setOauthUiError(null);
+      return {
+        config: configPayload,
+        connected: sessionConnected,
+        expiresAt: sessionExpiresAt,
+      };
     } catch {
       setOauthConfig(null);
       setOauthConnected(false);
       setOauthExpiresAt(null);
       setOauthUiError("Unable to check Hugging Face OAuth status right now.");
+      return {
+        config: null,
+        connected: false,
+        expiresAt: null,
+      };
     } finally {
       setOauthStatusLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("oauth")) {
+        return;
+      }
+    }
+
     void loadOAuthState();
   }, [loadOAuthState]);
 
@@ -377,37 +402,63 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       return;
     }
 
-    if (oauthStatus === "connected") {
-      setGenerationSuccess("Connected with Hugging Face OAuth.");
-      setGenerationError(null);
-      setOauthUiError(null);
-      void loadOAuthState();
-    } else if (oauthStatus === "disconnected") {
-      setGenerationSuccess("Disconnected from Hugging Face OAuth.");
-      setGenerationError(null);
-      setOauthUiError(null);
-      void loadOAuthState();
-    } else if (oauthStatus === "disabled") {
-      setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
-    } else if (oauthStatus === "session_secret") {
-      setOauthUiError(oauthStatusError || OAUTH_SECRET_MISCONFIGURED_MESSAGE);
-    } else if (oauthStatus === "missing_pkce") {
-      setOauthUiError(
-        oauthStatusError ||
-          "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
-      );
-    } else if (oauthStatus === "exchange_failed") {
-      setOauthUiError(
-        oauthStatusError || "Unable to complete Hugging Face OAuth exchange. Try connecting again.",
-      );
-    } else {
-      setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
-    }
-
     params.delete("oauth");
     params.delete("oauth_error");
     const nextQuery = params.toString();
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+
+    let cancelled = false;
+
+    const syncOAuthStatus = async () => {
+      if (oauthStatus === "connected") {
+        setGenerationError(null);
+        setOauthUiError(null);
+        const snapshot = await loadOAuthState();
+        if (cancelled) {
+          return;
+        }
+
+        if (snapshot.connected) {
+          setGenerationSuccess("Connected with Hugging Face OAuth.");
+        } else {
+          setGenerationSuccess(null);
+          setOauthUiError(OAUTH_SESSION_NOT_PERSISTED_MESSAGE);
+        }
+        return;
+      }
+
+      if (oauthStatus === "disconnected") {
+        setGenerationSuccess("Disconnected from Hugging Face OAuth.");
+        setGenerationError(null);
+        setOauthUiError(null);
+        await loadOAuthState();
+        return;
+      }
+
+      setGenerationSuccess(null);
+      if (oauthStatus === "disabled") {
+        setOauthUiError(OAUTH_UNAVAILABLE_MESSAGE);
+      } else if (oauthStatus === "session_secret") {
+        setOauthUiError(oauthStatusError || OAUTH_SECRET_MISCONFIGURED_MESSAGE);
+      } else if (oauthStatus === "missing_pkce") {
+        setOauthUiError(
+          oauthStatusError ||
+            "OAuth verifier state was missing. If you opened the embedded Spaces view, open the direct `*.hf.space` URL and try again.",
+        );
+      } else if (oauthStatus === "exchange_failed") {
+        setOauthUiError(
+          oauthStatusError || "Unable to complete Hugging Face OAuth exchange. Try connecting again.",
+        );
+      } else {
+        setOauthUiError("Unable to complete Hugging Face OAuth flow. Try connecting again.");
+      }
+    };
+
+    void syncOAuthStatus();
+
+    return () => {
+      cancelled = true;
+    };
   }, [loadOAuthState, pathname, router]);
 
   useEffect(() => {
@@ -661,11 +712,17 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
         return;
       }
 
-      if (!apiKey && !oauthConnected) {
-        setGenerationError(
-          "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation.",
-        );
-        return;
+      if (!apiKey) {
+        const oauthSnapshot = await loadOAuthState();
+        const oauthAvailable = Boolean(oauthSnapshot.config?.enabled && oauthSnapshot.config.clientId);
+        if (!oauthSnapshot.connected) {
+          setGenerationError(
+            oauthAvailable
+              ? "Add your Hugging Face API key or connect with Hugging Face OAuth to run generation."
+              : "Add your Hugging Face API key to run generation.",
+          );
+          return;
+        }
       }
 
       if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
@@ -938,7 +995,7 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
       appendModelLog,
       generationBillTo,
       hfApiKey,
-      oauthConnected,
+      loadOAuthState,
       patchSessionModel,
       skillContent,
       selectedModels,
@@ -984,6 +1041,8 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
   }, [baselineError, selectedModel]);
 
   const canOpenGenerateModal = selectedModels.length > 0;
+  const oauthAvailable = Boolean(oauthConfig?.enabled && oauthConfig.clientId);
+  const showOAuthControls = oauthStatusLoading || oauthAvailable;
 
   return (
     <>
@@ -1127,25 +1186,25 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             </CardContent>
           </Card>
 
-          <Card className="gap-3 py-3">
-            <CardHeader className="px-3">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Hugging Face Auth</CardTitle>
-                <Badge
-                  variant={oauthStatusLoading ? "outline" : oauthConnected ? "default" : "outline"}
-                >
-                  {oauthStatusLoading ? "checking" : oauthConnected ? "connected" : "not connected"}
-                </Badge>
-              </div>
-              <CardDescription className="text-xs">
-                Connect once to generate without manually pasting a key every time.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 px-3">
-              {oauthStatusLoading ? (
-                <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
-              ) : oauthConfig?.enabled ? (
-                oauthConnected ? (
+          {showOAuthControls ? (
+            <Card className="gap-3 py-3">
+              <CardHeader className="px-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">Hugging Face Auth</CardTitle>
+                  <Badge
+                    variant={oauthStatusLoading ? "outline" : oauthConnected ? "default" : "outline"}
+                  >
+                    {oauthStatusLoading ? "checking" : oauthConnected ? "connected" : "not connected"}
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  Connect once to generate without manually pasting a key every time.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 px-3">
+                {oauthStatusLoading ? (
+                  <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
+                ) : oauthConnected ? (
                   <>
                     <p className="text-xs text-muted-foreground">{formatOAuthExpiry(oauthExpiresAt)}</p>
                     <Button
@@ -1170,14 +1229,12 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                   >
                     {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
                   </Button>
-                )
-              ) : (
-                <p className="text-xs text-muted-foreground">{OAUTH_UNAVAILABLE_MESSAGE}</p>
-              )}
+                )}
 
-              {oauthUiError ? <p className="text-xs text-destructive">{oauthUiError}</p> : null}
-            </CardContent>
-          </Card>
+                {oauthUiError ? <p className="text-xs text-destructive">{oauthUiError}</p> : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card className="gap-3 py-3">
             <CardHeader className="px-3">
@@ -1397,18 +1454,18 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
             </CardHeader>
             <CardContent className="px-4">
               <form className="space-y-2.5" onSubmit={handleGenerate}>
-                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-foreground">Hugging Face OAuth</p>
-                    <Badge variant={oauthConnected ? "default" : "outline"}>
-                      {oauthConnected ? "connected" : "not connected"}
-                    </Badge>
-                  </div>
+                {showOAuthControls ? (
+                  <div className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">Hugging Face OAuth</p>
+                      <Badge variant={oauthConnected ? "default" : "outline"}>
+                        {oauthConnected ? "connected" : "not connected"}
+                      </Badge>
+                    </div>
 
-                  {oauthStatusLoading ? (
-                    <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
-                  ) : oauthConfig?.enabled ? (
-                    oauthConnected ? (
+                    {oauthStatusLoading ? (
+                      <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
+                    ) : oauthConnected ? (
                       <div className="space-y-2">
                         <p className="text-xs text-muted-foreground">
                           {formatOAuthExpiry(oauthExpiresAt)}
@@ -1435,22 +1492,20 @@ export function EvaluatorClient({ prompt, promptVersion }: EvaluatorClientProps)
                       >
                         {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
                       </Button>
-                    )
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {OAUTH_UNAVAILABLE_MESSAGE}
-                    </p>
-                  )}
+                    )}
 
-                  {oauthUiError ? (
-                    <p className="text-xs text-destructive">{oauthUiError}</p>
-                  ) : null}
-                </div>
+                    {oauthUiError ? (
+                      <p className="text-xs text-destructive">{oauthUiError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-muted-foreground">
                     API Key
-                    <span className="ml-1 text-muted-foreground/50">optional when OAuth is connected</span>
+                    <span className="ml-1 text-muted-foreground/50">
+                      {oauthAvailable ? "optional when OAuth is connected" : "required"}
+                    </span>
                   </label>
                   <div className="flex items-center gap-2">
                     <Input

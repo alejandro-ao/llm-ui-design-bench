@@ -1,21 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { NextRequest, NextResponse } from "next/server";
+import { buildHfOAuthCookieBaseOptions } from "@/lib/hf-oauth-cookie-options";
 
 export const HF_OAUTH_NONCE_COOKIE_NAME = "hf_oauth_nonce";
 export const HF_OAUTH_CODE_VERIFIER_COOKIE_NAME = "hf_oauth_code_verifier";
 
 const PKCE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 const PKCE_VERIFIER_LENGTH = 96;
-
-function buildCookieBaseOptions() {
-  return {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  };
-}
 
 function normalizeProviderOrigin(input: string): string {
   try {
@@ -78,7 +70,7 @@ export function setHfOAuthPkceCookies(
   response: NextResponse,
   input: { nonce: string; codeVerifier: string },
 ): void {
-  const options = buildCookieBaseOptions();
+  const options = buildHfOAuthCookieBaseOptions();
   response.cookies.set({
     ...options,
     name: HF_OAUTH_NONCE_COOKIE_NAME,
@@ -92,7 +84,7 @@ export function setHfOAuthPkceCookies(
 }
 
 export function clearHfOAuthPkceCookies(response: NextResponse): void {
-  const options = buildCookieBaseOptions();
+  const options = buildHfOAuthCookieBaseOptions();
   response.cookies.set({
     ...options,
     name: HF_OAUTH_NONCE_COOKIE_NAME,
