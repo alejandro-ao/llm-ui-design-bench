@@ -13,7 +13,6 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { CodeStreamPanel, type CodeFileName } from "@/components/code-stream-panel";
 import { PreviewFrame } from "@/components/preview-frame";
-import { PromptCard } from "@/components/prompt-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,6 +67,12 @@ const PROVIDER_KEY_REQUIRED_MESSAGE: Record<Exclude<ProviderId, "huggingface">, 
   anthropic: "Add your Anthropic API key to run generation.",
   google: "Add your Google API key to run generation.",
 };
+const REFERENCE_BASELINE_NOTE =
+  "This is the baseline reference for this task. Generated model outputs should build on this input and satisfy the task constraints.";
+const MULTISTEP_EVALUATION_FOCUS =
+  "This task evaluates whether a model can design a complete SaaS onboarding wizard across five required steps, with coherent information hierarchy, clear progression, and usable validation/error states.";
+const IMAGE_TO_CODE_EVALUATION_FOCUS =
+  "This task evaluates how accurately a model can transform a mockup image and supporting image assets into a usable, responsive website that visually matches the reference.";
 const TASK_OPTIONS = listTaskOptions();
 const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
 const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "figma_landing";
@@ -151,6 +156,15 @@ type TaskNullableStringMap = Record<TaskId, string | null>;
 type TaskBooleanMap = Record<TaskId, boolean>;
 type TaskProviderMap = Record<TaskId, ProviderId>;
 
+interface ReferenceHtmlOptions {
+  title: string;
+  description: string;
+  evaluationFocus: string;
+  baselineNote: string;
+  mediaUrl?: string;
+  assetDetails?: string[];
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -167,14 +181,26 @@ function buildTaskMap<T>(factory: (taskId: TaskId) => T): Record<TaskId, T> {
   }, {} as Record<TaskId, T>);
 }
 
-function buildReferenceHtml(
-  title: string,
-  description: string,
-  mediaUrl?: string,
-): string {
-  const safeTitle = escapeHtml(title);
-  const safeDescription = escapeHtml(description);
-  const safeMediaUrl = mediaUrl ? escapeHtml(mediaUrl) : null;
+function buildImageAssetDetails(reference: ImageToCodeReference): string[] {
+  return reference.supportingAssets.map(
+    (asset) => `${asset.label}: ${asset.description}`,
+  );
+}
+
+function buildReferenceHtml(options: ReferenceHtmlOptions): string {
+  const safeTitle = escapeHtml(options.title);
+  const safeDescription = escapeHtml(options.description);
+  const safeEvaluationFocus = escapeHtml(options.evaluationFocus);
+  const safeBaselineNote = escapeHtml(options.baselineNote);
+  const safeMediaUrl = options.mediaUrl ? escapeHtml(options.mediaUrl) : null;
+  const safeAssetDetails = options.assetDetails?.map((detail) => escapeHtml(detail)) ?? [];
+  const assetDetailsMarkup =
+    safeAssetDetails.length > 0
+      ? `<h3>Required assets</h3>
+      <ul class="asset-list">${safeAssetDetails
+        .map((detail) => `<li>${detail}</li>`)
+        .join("")}</ul>`
+      : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -234,6 +260,66 @@ function buildReferenceHtml(
       padding: 6px 12px;
       background: #f8fbff;
     }
+    .baseline-note {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 6;
+      max-width: 360px;
+      border: 1px solid #c7d7ee;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(248, 251, 255, 0.96);
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+    }
+    .baseline-note h2 {
+      margin: 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #0f172a;
+    }
+    .baseline-note p {
+      margin-top: 6px;
+      max-width: none;
+      font-size: 0.83rem;
+      line-height: 1.45;
+      color: #334155;
+    }
+    .focus {
+      margin-top: 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fbfdff;
+      padding: 14px 16px;
+    }
+    .focus h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #0f172a;
+    }
+    .focus p {
+      margin-top: 8px;
+    }
+    .focus h3 {
+      margin: 14px 0 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #0f172a;
+    }
+    .asset-list {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+    .asset-list li + li {
+      margin-top: 6px;
+    }
     .frame {
       margin-top: 24px;
       border-radius: 16px;
@@ -256,13 +342,35 @@ function buildReferenceHtml(
       text-align: center;
       font-size: 14px;
     }
+    @media (max-width: 900px) {
+      body {
+        padding: 18px;
+      }
+      .shell {
+        padding: 18px;
+      }
+      .baseline-note {
+        position: static;
+        max-width: none;
+        margin: 0 0 14px;
+      }
+    }
   </style>
 </head>
 <body>
+  <aside class="baseline-note">
+    <h2>Baseline Reference</h2>
+    <p>${safeBaselineNote}</p>
+  </aside>
   <main class="shell">
     <h1>${safeTitle}</h1>
     <p>${safeDescription}</p>
     <span class="badge">Task reference</span>
+    <section class="focus">
+      <h2>What this task evaluates</h2>
+      <p>${safeEvaluationFocus}</p>
+      ${assetDetailsMarkup}
+    </section>
     <section class="frame">
       ${
         safeMediaUrl
@@ -436,26 +544,33 @@ function getStatusBadge(status: SessionModelStatus) {
 
 function buildInitialTaskModels(): TaskModelMap {
   const defaultImageReference = getImageToCodeReference(DEFAULT_IMAGE_REFERENCE_ID);
+  const defaultImageReferenceHtml = buildReferenceHtml({
+    title: "Image to Code Reference",
+    description: defaultImageReference.description,
+    evaluationFocus: IMAGE_TO_CODE_EVALUATION_FOCUS,
+    baselineNote: REFERENCE_BASELINE_NOTE,
+    mediaUrl: defaultImageReference.assetPath,
+    assetDetails: buildImageAssetDetails(defaultImageReference),
+  });
 
   return {
     html_redesign: [buildInitialBaselineModel()],
     multistep_form: [
       buildInitialBaselineModel({
         label: "Task Reference (SaaS Onboarding)",
-        html: buildReferenceHtml(
-          "Multi-step SaaS Onboarding",
-          "Required sections: Account, Company, Team Invite, Plan & Billing, and Review & Submit. Interaction and style are model-defined.",
-        ),
+        html: buildReferenceHtml({
+          title: "Multi-step SaaS Onboarding",
+          description:
+            "Required sections: Account, Company, Team Invite, Plan & Billing, and Review & Submit. Interaction and style are model-defined.",
+          evaluationFocus: MULTISTEP_EVALUATION_FOCUS,
+          baselineNote: REFERENCE_BASELINE_NOTE,
+        }),
       }),
     ],
     image_to_code: [
       buildInitialBaselineModel({
         label: `Reference Mockup (${defaultImageReference.label})`,
-        html: buildReferenceHtml(
-          "Image to Code Reference",
-          defaultImageReference.description,
-          defaultImageReference.assetPath,
-        ),
+        html: defaultImageReferenceHtml,
       }),
     ],
   };
@@ -852,19 +967,19 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
   useEffect(() => {
     const imageReference = getImageToCodeReference(activeImageReferenceId);
+    const referenceHtml = buildReferenceHtml({
+      title: "Image to Code Reference",
+      description: imageReference.description,
+      evaluationFocus: IMAGE_TO_CODE_EVALUATION_FOCUS,
+      baselineNote: REFERENCE_BASELINE_NOTE,
+      mediaUrl: imageReference.assetPath,
+      assetDetails: buildImageAssetDetails(imageReference),
+    });
     patchTaskSessionModel("image_to_code", BASELINE_MODEL_ID, (model) => ({
       ...model,
       label: `Reference Mockup (${imageReference.label})`,
-      finalHtml: buildReferenceHtml(
-        "Image to Code Reference",
-        imageReference.description,
-        imageReference.assetPath,
-      ),
-      streamedHtml: buildReferenceHtml(
-        "Image to Code Reference",
-        imageReference.description,
-        imageReference.assetPath,
-      ),
+      finalHtml: referenceHtml,
+      streamedHtml: referenceHtml,
       error: null,
     }));
   }, [activeImageReferenceId, patchTaskSessionModel]);
@@ -1739,7 +1854,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   return (
     <>
       <div className="grid h-full min-h-0 overflow-hidden bg-background lg:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-border bg-sidebar p-4 lg:border-r lg:border-b-0">
+        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-b border-border bg-sidebar p-3 lg:border-r lg:border-b-0">
           <div className="flex items-start justify-between">
             <div>
               <div className="inline-flex items-center gap-1.5">
@@ -1751,19 +1866,22 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
               <h1 className="mt-1.5 text-lg leading-tight font-semibold">
                 Model Comparison
               </h1>
+              <p className="mt-1.5 max-w-[31ch] text-[11px] text-muted-foreground">
+                Compare model performance on frontend benchmark tasks in this Hugging Face Space.
+              </p>
             </div>
             <ThemeToggle />
           </div>
 
-          <Card className="gap-3 py-3">
-            <CardHeader className="px-3">
-              <CardTitle className="text-sm">Tasks</CardTitle>
-              <CardDescription className="text-xs">
-                Choose a benchmark task. Model picks, skills, and outputs are kept per task.
+          <Card className="gap-2 py-2">
+            <CardHeader className="px-2.5">
+              <CardTitle className="text-sm">Step 1: Select a Task</CardTitle>
+              <CardDescription className="text-[11px]">
+                Pick the benchmark scenario you want to run.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2.5 px-3">
-              <div className="space-y-2">
+            <CardContent className="space-y-2 px-2.5">
+              <div className="space-y-1.5">
                 {TASK_OPTIONS.map((task) => {
                   const isActive = task.id === activeTaskId;
                   return (
@@ -1776,28 +1894,28 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                         }
                       }}
                       disabled={generationLoading}
-                      className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
                         isActive
                           ? "border-primary bg-primary/5"
                           : "border-border bg-background hover:bg-muted/70"
                       } disabled:cursor-not-allowed disabled:opacity-60`}
                     >
-                      <p className="text-sm font-medium">{task.label}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{task.description}</p>
+                      <p className="text-xs font-medium">{task.label}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{task.description}</p>
                     </button>
                   );
                 })}
               </div>
 
               {activeTaskId === "image_to_code" ? (
-                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
-                  <label htmlFor="image-reference-select" className="text-xs font-medium text-foreground">
+                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                  <label htmlFor="image-reference-select" className="text-[11px] font-medium text-foreground">
                     Mockup Reference
                   </label>
                   <select
                     id="image-reference-select"
                     aria-label="Image-to-Code reference"
-                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
                     value={activeImageReferenceId}
                     disabled={generationLoading}
                     onChange={(event) =>
@@ -1817,32 +1935,32 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
               ) : null}
 
               {activeTaskId === "multistep_form" ? (
-                <p className="rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+                <p className="rounded-lg border border-border bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground">
                   Variant: SaaS onboarding (Account, Company, Team Invite, Plan/Billing, Review).
                 </p>
               ) : null}
             </CardContent>
           </Card>
 
-          <Card className="gap-3 py-3">
-            <CardHeader className="px-3">
+          <Card className="gap-2 py-2">
+            <CardHeader className="px-2.5">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Models & Provider</CardTitle>
+                <CardTitle className="text-sm">Step 2: Select Models to Compare</CardTitle>
                 <Badge variant="outline">Max {MAX_SELECTED_MODELS}</Badge>
               </div>
-              <CardDescription className="text-xs">
-                Choose a provider, then add up to {MAX_SELECTED_MODELS} models for this task.
+              <CardDescription className="text-[11px]">
+                Choose provider + models, then pick which output to inspect.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 px-3">
+            <CardContent className="space-y-2 px-2.5">
               <div className="space-y-1">
-                <label htmlFor="provider-select" className="text-xs font-medium text-muted-foreground">
+                <label htmlFor="provider-select" className="text-[11px] font-medium text-muted-foreground">
                   Provider
                 </label>
                 <select
                   id="provider-select"
                   aria-label="Generation provider"
-                  className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
                   value={activeProvider}
                   disabled={generationLoading}
                   onChange={(event) => {
@@ -1878,17 +1996,17 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
                   {!searchLoading && searchQuery.trim().length >= 2 ? (
                     searchResults.length > 0 ? (
-                      <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-border p-2">
+                      <div className="max-h-28 space-y-1.5 overflow-y-auto rounded-lg border border-border p-1.5">
                         {searchResults.map((result) => (
                           <button
                             key={result.modelId}
                             type="button"
                             onClick={() => addModelToSelection(result)}
                             disabled={generationLoading}
-                            className="w-full rounded-md border border-border bg-background px-2.5 py-2 text-left transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            <p className="truncate text-sm font-medium">{result.label}</p>
-                            <p className="truncate text-xs text-muted-foreground">{result.modelId}</p>
+                            <p className="truncate text-xs font-medium">{result.label}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">{result.modelId}</p>
                           </button>
                         ))}
                       </div>
@@ -1900,17 +2018,17 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   ) : null}
                 </>
               ) : (
-                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
+                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-2">
                   <label
                     htmlFor="provider-model-preset-select"
-                    className="text-xs font-medium text-muted-foreground"
+                    className="text-[11px] font-medium text-muted-foreground"
                   >
                     {getProviderLabel(activeProvider)} model presets
                   </label>
                   <select
                     id="provider-model-preset-select"
                     aria-label={`${getProviderLabel(activeProvider)} model presets`}
-                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
                     value={providerPreset ?? ""}
                     disabled={generationLoading}
                     onChange={(event) =>
@@ -1951,18 +2069,18 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                 <p className="text-xs text-muted-foreground">{selectionNotice}</p>
               ) : null}
 
-              <div className="space-y-2 rounded-lg border border-dashed border-border p-2.5">
+              <div className="space-y-1.5 rounded-lg border border-dashed border-border p-2">
                 <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                   Selected Models
                 </p>
                 {selectedModels.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No models selected yet.</p>
                 ) : (
-                  <ul className="space-y-1.5">
+                  <ul className="max-h-24 space-y-1 overflow-y-auto pr-1">
                     {selectedModels.map((model) => (
                       <li key={model.modelId} className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="truncate text-xs text-foreground">{model.modelId}</p>
+                          <p className="truncate text-[11px] text-foreground">{model.modelId}</p>
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                             {isProviderId(model.provider) ? getProviderLabel(model.provider) : "Unknown"}
                           </p>
@@ -1971,7 +2089,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-5 px-2 text-[10px]"
                           disabled={generationLoading}
                           onClick={() => removeSelectedModel(model.modelId)}
                         >
@@ -1983,31 +2101,58 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={generationLoading}
-                  onClick={openSkillModal}
-                >
-                  {skillContent ? "Edit Skill" : "Add Skill"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="accent"
-                  disabled={!canOpenGenerateModal || generationLoading}
-                  onClick={() => {
-                    void handleGenerateAction();
-                  }}
-                >
-                  Generate Selected
-                </Button>
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Comparison Outputs
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Click any output below to inspect code/preview.
+                </p>
+                <div className="max-h-32 space-y-1 overflow-y-auto pr-1">
+                  {sessionModels.map((model) => {
+                    const isActive = model.modelId === selectedModelId;
+                    return (
+                      <button
+                        key={model.modelId}
+                        type="button"
+                        onClick={() => setActiveSelectedModelId(model.modelId)}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                          isActive
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-background hover:bg-muted/70"
+                        }`}
+                      >
+                        <div className="mb-0.5 flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-medium">{model.label}</p>
+                          {getStatusBadge(model.status)}
+                        </div>
+                        <p className="truncate text-[10px] text-muted-foreground">{model.modelId}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <p className="text-[11px] text-muted-foreground">
-                Generated outputs are kept in memory for this browser session only.
-              </p>
-
+          <Card className="gap-2 py-2">
+            <CardHeader className="px-2.5">
+              <CardTitle className="text-sm">Step 3: Add a Frontend Skill (Optional)</CardTitle>
+              <CardDescription className="text-[11px]">
+                Attach design guidance for this task before running generation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 px-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={generationLoading}
+                onClick={openSkillModal}
+              >
+                {skillContent ? "Edit Skill" : "Add Skill"}
+              </Button>
               {skillContent ? (
                 <p className="text-[11px] text-muted-foreground">
                   Skill attached • {skillContent.length} chars
@@ -2017,6 +2162,45 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   No skill attached.
                 </p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="gap-2 py-2">
+            <CardHeader className="px-2.5">
+              <CardTitle className="text-sm">Step 4: Generate</CardTitle>
+              <CardDescription className="text-[11px]">
+                Review the task prompt, then run selected models.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 px-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Prompt v{activeTaskDefinition.promptVersion}
+                </p>
+                <Badge variant="outline">{selectedModels.length} selected</Badge>
+              </div>
+
+              <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-muted/20 p-2">
+                <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  {activePrompt}
+                </pre>
+              </div>
+
+              <Button
+                type="button"
+                variant="accent"
+                className="w-full"
+                disabled={!canOpenGenerateModal || generationLoading}
+                onClick={() => {
+                  void handleGenerateAction();
+                }}
+              >
+                Generate Selected
+              </Button>
+
+              <p className="text-[11px] text-muted-foreground">
+                Generated outputs are kept in memory for this browser session only.
+              </p>
 
               {generationSuccess ? (
                 <p className="text-xs text-green-600 dark:text-green-400">{generationSuccess}</p>
@@ -2024,97 +2208,52 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
               {generationError && !isGenerateModalOpen ? (
                 <p className="text-xs text-destructive">{generationError}</p>
               ) : null}
-            </CardContent>
-          </Card>
 
-          {showOAuthControls ? (
-            <Card className="gap-3 py-3">
-              <CardHeader className="px-3">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm">Hugging Face Auth</CardTitle>
-                  <Badge
-                    variant={oauthStatusLoading ? "outline" : oauthConnected ? "default" : "outline"}
-                  >
-                    {oauthStatusLoading ? "checking" : oauthConnected ? "connected" : "not connected"}
-                  </Badge>
-                </div>
-                <CardDescription className="text-xs">
-                  Connect once to generate without manually pasting a key every time.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 px-3">
-                {oauthStatusLoading ? (
-                  <p className="text-xs text-muted-foreground">Checking OAuth session...</p>
-                ) : oauthConnected ? (
-                  <>
-                    <p className="text-xs text-muted-foreground">{formatOAuthExpiry(oauthExpiresAt)}</p>
+              {showOAuthControls ? (
+                <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium">Hugging Face Auth</p>
+                    <Badge
+                      variant={oauthStatusLoading ? "outline" : oauthConnected ? "default" : "outline"}
+                    >
+                      {oauthStatusLoading ? "checking" : oauthConnected ? "connected" : "not connected"}
+                    </Badge>
+                  </div>
+
+                  {oauthStatusLoading ? (
+                    <p className="text-[11px] text-muted-foreground">Checking OAuth session...</p>
+                  ) : oauthConnected ? (
+                    <>
+                      <p className="text-[11px] text-muted-foreground">{formatOAuthExpiry(oauthExpiresAt)}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={handleOAuthDisconnect}
+                        disabled={oauthActionLoading || generationLoading}
+                      >
+                        {oauthActionLoading ? "Disconnecting..." : "Disconnect Hugging Face"}
+                      </Button>
+                    </>
+                  ) : (
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       className="w-full"
-                      onClick={handleOAuthDisconnect}
+                      onClick={handleOAuthConnect}
                       disabled={oauthActionLoading || generationLoading}
                     >
-                      {oauthActionLoading ? "Disconnecting..." : "Disconnect Hugging Face"}
+                      {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
                     </Button>
-                  </>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="w-full"
-                    onClick={handleOAuthConnect}
-                    disabled={oauthActionLoading || generationLoading}
-                  >
-                    {oauthActionLoading ? "Opening OAuth..." : "Connect with Hugging Face"}
-                  </Button>
-                )}
+                  )}
 
-                {oauthUiError ? <p className="text-xs text-destructive">{oauthUiError}</p> : null}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card className="gap-3 py-3">
-            <CardHeader className="px-3">
-              <CardTitle className="text-sm">Session Models</CardTitle>
-              <CardDescription className="text-xs">
-                Task reference plus selected models to compare.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 px-3">
-              {sessionModels.map((model) => {
-                const isActive = model.modelId === selectedModelId;
-                return (
-                  <button
-                    key={model.modelId}
-                    type="button"
-                    onClick={() => setActiveSelectedModelId(model.modelId)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                      isActive
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-background hover:bg-muted/70"
-                    }`}
-                  >
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium">{model.label}</p>
-                      {getStatusBadge(model.status)}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">{model.modelId}</p>
-                    {model.sourceType === "model" && isProviderId(model.provider) ? (
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        {getProviderLabel(model.provider)}
-                      </p>
-                    ) : null}
-                  </button>
-                );
-              })}
+                  {oauthUiError ? <p className="text-xs text-destructive">{oauthUiError}</p> : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
-
-          <PromptCard prompt={activePrompt} promptVersion={activeTaskDefinition.promptVersion} />
         </aside>
 
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">

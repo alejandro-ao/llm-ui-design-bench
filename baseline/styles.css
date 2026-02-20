@@ -10,6 +10,32 @@ body {
     background: #bdbdbd;
 }
 
+.baseline-task-note {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 9999;
+    width: min(420px, calc(100vw - 28px));
+    border: 2px solid #1d1d1d;
+    background: rgba(255, 250, 233, 0.95);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    padding: 10px 12px;
+}
+
+.baseline-task-note strong {
+    display: block;
+    margin: 0 0 3px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.baseline-task-note p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
 .page {
     width: 1460px;
     margin-left: 40px;

@@ -86,21 +86,24 @@ const TASK_DEFINITIONS: TaskDefinition[] = [
   {
     id: "html_redesign",
     label: "HTML to HTML Redesign",
-    description: "Improve an existing landing page while preserving section content and structure.",
+    description:
+      "Improve a rough baseline landing page while preserving its content, claims, and section structure.",
     promptVersion: "v1",
     usesBaselineArtifact: true,
   },
   {
     id: "multistep_form",
     label: "Multi-step Form",
-    description: "Build a complete SaaS onboarding wizard with validation and progress.",
+    description:
+      "Build a complete SaaS onboarding wizard with step progression, field validation, and clear UX states.",
     promptVersion: "v1",
     usesBaselineArtifact: false,
   },
   {
     id: "image_to_code",
     label: "Image to Code",
-    description: "Implement an HTML/CSS/JS page that faithfully matches a provided mockup image.",
+    description:
+      "Convert a mockup image and provided assets into a usable HTML/CSS/JS page that closely matches the design.",
     promptVersion: "v1",
     usesBaselineArtifact: false,
   },
