@@ -58,7 +58,7 @@ const OAUTH_SESSION_NOT_PERSISTED_MESSAGE =
   "Hugging Face OAuth completed, but no active OAuth session is available. If you are in the embedded Spaces page, open the direct `*.hf.space` URL and reconnect.";
 const TASK_OPTIONS = listTaskOptions();
 const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
-const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "dashboard_a";
+const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "figma_landing";
 
 type MainPanelTab = "code" | "app";
 type SessionModelStatus = "baseline" | "queued" | "generating" | "done" | "error";

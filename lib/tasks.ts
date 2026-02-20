@@ -20,10 +20,15 @@ export interface TaskOption {
 }
 
 export interface ImageToCodeReference {
-  id: "dashboard_a" | "landing_b" | "mobile_c";
+  id: "figma_landing";
   label: string;
   description: string;
   assetPath: string;
+  supportingAssets: {
+    label: string;
+    description: string;
+    assetPath: string;
+  }[];
 }
 
 export interface MultistepFormTaskContext {
@@ -57,22 +62,23 @@ export const DEFAULT_TASK_ID: TaskId = "html_redesign";
 
 export const IMAGE_TO_CODE_REFERENCES: ImageToCodeReference[] = [
   {
-    id: "dashboard_a",
-    label: "Dashboard - Data Dense",
-    description: "Analytics-heavy dashboard mockup with charts, KPI cards, and filters.",
-    assetPath: "/task-assets/image-to-code/dashboard-a.svg",
-  },
-  {
-    id: "landing_b",
-    label: "Landing Page - Editorial",
-    description: "Marketing landing page with bold hero typography and testimonial sections.",
-    assetPath: "/task-assets/image-to-code/landing-b.svg",
-  },
-  {
-    id: "mobile_c",
-    label: "Mobile App - Booking Flow",
-    description: "Mobile booking UI with cards, segmented controls, and summary blocks.",
-    assetPath: "/task-assets/image-to-code/mobile-c.svg",
+    id: "figma_landing",
+    label: "Figma Landing Page - Neon",
+    description:
+      "Dark neon marketing landing page with a glowing hero, KPI section, platform cards, and testimonial block.",
+    assetPath: "/task-assets/image-to-code/figma.png",
+    supportingAssets: [
+      {
+        label: "Hero Glow Background",
+        description: "Use this image inside the hero section background glow.",
+        assetPath: "/task-assets/image-to-code/hero.png",
+      },
+      {
+        label: "Testimonial Portrait",
+        description: "Use this silhouette portrait in the testimonial card.",
+        assetPath: "/task-assets/image-to-code/person-silhouette.png",
+      },
+    ],
   },
 ];
 
@@ -317,6 +323,12 @@ function buildMultistepFormPrompt(context: MultistepFormTaskContext): string {
 
 function buildImageToCodePrompt(context: ImageToCodeTaskContext): string {
   const reference = getImageToCodeReference(context.imageId);
+  const supportingAssetLines = reference.supportingAssets
+    .map((asset) => {
+      const resolvedUrl = resolveAssetUrl(context.imageUrl, asset.assetPath);
+      return `- ${asset.label}: ${resolvedUrl} (${asset.description})`;
+    })
+    .join("\n");
 
   return [
     "Recreate the provided mockup image as faithfully as possible in HTML/CSS/JS.",
@@ -324,6 +336,9 @@ function buildImageToCodePrompt(context: ImageToCodeTaskContext): string {
     `Reference image label: ${reference.label}`,
     `Reference image URL: ${context.imageUrl}`,
     `Reference intent: ${reference.description}`,
+    "",
+    "Supporting image assets (use these exact files where they appear in the design):",
+    supportingAssetLines,
     "",
     "Requirements:",
     "- Match layout, spacing, visual hierarchy, and component structure as closely as possible.",

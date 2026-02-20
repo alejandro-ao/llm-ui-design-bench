@@ -266,8 +266,8 @@ describe("POST /api/generate/hf/stream", () => {
           modelId: "moonshotai/kimi-k2-instruct",
           taskId: "image_to_code",
           taskContext: {
-            imageId: "dashboard_a",
-            imageUrl: "http://localhost/task-assets/image-to-code/dashboard-a.svg",
+            imageId: "figma_landing",
+            imageUrl: "http://localhost/task-assets/image-to-code/figma.png",
           },
         }),
       }),
@@ -292,9 +292,12 @@ describe("POST /api/generate/hf/stream", () => {
       baselineHtml: string;
     };
     expect(calledInput.baselineHtml).toBe("");
-    expect(calledInput.prompt).toContain("Reference image label: Dashboard - Data Dense");
+    expect(calledInput.prompt).toContain("Reference image label: Figma Landing Page - Neon");
     expect(calledInput.prompt).toContain(
-      "Reference image URL: http://localhost/task-assets/image-to-code/dashboard-a.svg",
+      "Reference image URL: http://localhost/task-assets/image-to-code/figma.png",
+    );
+    expect(calledInput.prompt).toContain(
+      "Testimonial Portrait: http://localhost/task-assets/image-to-code/person-silhouette.png",
     );
   });
 
@@ -331,8 +334,8 @@ describe("POST /api/generate/hf/stream", () => {
           modelId: "moonshotai/kimi-k2-instruct",
           taskId: "image_to_code",
           taskContext: {
-            imageId: "dashboard_a",
-            imageUrl: "/task-assets/image-to-code/dashboard-a.svg",
+            imageId: "figma_landing",
+            imageUrl: "/task-assets/image-to-code/figma.png",
           },
         }),
       }),

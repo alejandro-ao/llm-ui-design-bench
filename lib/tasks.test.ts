@@ -32,8 +32,8 @@ describe("resolveTaskRequest", () => {
   it("requires absolute urls for image_to_code context", () => {
     expect(() =>
       resolveTaskRequest("image_to_code", {
-        imageId: "dashboard_a",
-        imageUrl: "/task-assets/image-to-code/dashboard-a.svg",
+        imageId: "figma_landing",
+        imageUrl: "/task-assets/image-to-code/figma.png",
       }),
     ).toThrow("taskContext.imageUrl must be an absolute http(s) URL.");
   });
@@ -48,11 +48,15 @@ describe("buildTaskPrompt", () => {
 
   it("builds image_to_code prompt with reference url", () => {
     const prompt = buildTaskPrompt("image_to_code", {
-      imageId: "dashboard_a",
+      imageId: "figma_landing",
       imageUrl: "https://example.com/mockup.png",
     });
 
     expect(prompt).toContain("Reference image URL: https://example.com/mockup.png");
+    expect(prompt).toContain("Hero Glow Background: https://example.com/task-assets/image-to-code/hero.png");
+    expect(prompt).toContain(
+      "Testimonial Portrait: https://example.com/task-assets/image-to-code/person-silhouette.png",
+    );
     expect(prompt).toContain("Recreate the provided mockup image");
   });
 
