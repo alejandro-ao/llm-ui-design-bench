@@ -1,4 +1,8 @@
-import type { GenerationAttempt } from "@/lib/generation-types";
+import type {
+  GenerationAttempt,
+  GenerationCost,
+  GenerationUsage,
+} from "@/lib/generation-types";
 
 export type HfGenerationStreamEventName =
   | "meta"
@@ -46,6 +50,8 @@ export interface HfGenerationStreamCompletePayload {
     usedModel: string;
     usedProvider: string;
     attempts: GenerationAttempt[];
+    usage?: GenerationUsage | null;
+    cost?: GenerationCost | null;
   };
 }
 

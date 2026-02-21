@@ -4,9 +4,11 @@ import {
   GenerationAttempt,
   GenerationError,
   GenerationResult,
+  type GenerationUsage,
   StreamingCallbacks,
   SYSTEM_PROMPT,
 } from "@/lib/generation-types";
+import { normalizeGenerationUsage } from "@/lib/pricing";
 
 interface GenerateWithAnthropicInput {
   apiKey: string;
@@ -79,6 +81,22 @@ function safeParseJson(rawBody: string): unknown {
   }
 }
 
+function extractAnthropicUsage(payload: unknown): GenerationUsage | null {
+  const maybePayload = payload as {
+    usage?: {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      cache_read_input_tokens?: unknown;
+    };
+  };
+
+  return normalizeGenerationUsage({
+    inputTokens: maybePayload.usage?.input_tokens,
+    outputTokens: maybePayload.usage?.output_tokens,
+    cachedInputTokens: maybePayload.usage?.cache_read_input_tokens,
+  });
+}
+
 function buildAnthropicUrl(): string {
   const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim() || DEFAULT_ANTHROPIC_BASE_URL;
   return `${baseUrl.replace(/\/+$/, "")}/v1/messages`;
@@ -89,7 +107,7 @@ async function requestAnthropic({
   modelId,
   prompt,
   baselineHtml,
-}: GenerateWithAnthropicInput): Promise<string> {
+}: GenerateWithAnthropicInput): Promise<{ html: string; usage: GenerationUsage | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
@@ -131,7 +149,10 @@ async function requestAnthropic({
       throw new GenerationError("Anthropic returned empty output.", 422);
     }
 
-    return extractHtmlDocument(text);
+    return {
+      html: extractHtmlDocument(text),
+      usage: extractAnthropicUsage(payload),
+    };
   } catch (error) {
     if (error instanceof GenerationError) {
       throw error;
@@ -154,17 +175,18 @@ export async function generateHtmlWithAnthropic(
   const startedAt = Date.now();
 
   try {
-    const html = await requestAnthropic(input);
+    const response = await requestAnthropic(input);
     attempts.push({
       model: input.modelId,
       provider: "anthropic",
       status: "success",
       retryable: false,
       durationMs: Date.now() - startedAt,
+      ...(response.usage ? { usage: response.usage } : {}),
     });
 
     return {
-      html,
+      html: response.html,
       usedModel: input.modelId,
       usedProvider: "anthropic",
       attempts,

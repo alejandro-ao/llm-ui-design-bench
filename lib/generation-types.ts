@@ -6,6 +6,8 @@ export interface GenerationAttempt {
   retryable: boolean;
   durationMs: number;
   detail?: string;
+  usage?: GenerationUsage;
+  cost?: GenerationCost | null;
 }
 
 export interface GenerationResult {
@@ -13,6 +15,25 @@ export interface GenerationResult {
   usedModel: string;
   usedProvider: string;
   attempts: GenerationAttempt[];
+  usage?: GenerationUsage | null;
+  cost?: GenerationCost | null;
+}
+
+export interface GenerationUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  totalTokens: number;
+}
+
+export interface GenerationCost {
+  currency: "USD";
+  inputUsd: number;
+  outputUsd: number;
+  cachedInputUsd?: number;
+  totalUsd: number;
+  pricingVersion: string;
+  pricingMatchedModel: string;
 }
 
 export interface StreamAttemptInfo {

@@ -1,5 +1,8 @@
 import { OpenAI } from "openai";
 
+import type { GenerationCost, GenerationUsage } from "@/lib/generation-types";
+import { normalizeGenerationUsage } from "@/lib/pricing";
+
 export interface HfGenerationAttempt {
   model: string;
   provider: string;
@@ -8,6 +11,8 @@ export interface HfGenerationAttempt {
   retryable: boolean;
   durationMs: number;
   detail?: string;
+  usage?: GenerationUsage;
+  cost?: GenerationCost | null;
 }
 
 export interface HfGenerationResult {
@@ -15,6 +20,8 @@ export interface HfGenerationResult {
   usedModel: string;
   usedProvider: string;
   attempts: HfGenerationAttempt[];
+  usage?: GenerationUsage | null;
+  cost?: GenerationCost | null;
 }
 
 export interface HfStreamAttemptInfo {
@@ -103,6 +110,24 @@ function coerceMessageContent(value: unknown): string {
   }
 
   return "";
+}
+
+function normalizeOpenAiUsage(usage: unknown): GenerationUsage | null {
+  const usagePayload = (usage ?? {}) as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    prompt_tokens_details?: {
+      cached_tokens?: unknown;
+    };
+  };
+
+  return normalizeGenerationUsage({
+    inputTokens: usagePayload.prompt_tokens,
+    outputTokens: usagePayload.completion_tokens,
+    totalTokens: usagePayload.total_tokens,
+    cachedInputTokens: usagePayload.prompt_tokens_details?.cached_tokens,
+  });
 }
 
 function isLikelyHtml(value: string): boolean {
@@ -604,6 +629,7 @@ export async function generateHtmlWithHuggingFace({
         max_tokens: maxTokens,
         messages: buildChatMessages(prompt, baselineHtml),
       });
+      const usage = normalizeOpenAiUsage(payload.usage);
 
       const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
       const html = extractHtmlDocument(content);
@@ -616,6 +642,7 @@ export async function generateHtmlWithHuggingFace({
         status: "success",
         retryable: false,
         durationMs,
+        ...(usage ? { usage } : {}),
       });
 
       logHfGeneration("info", "attempt_succeeded", {
@@ -822,9 +849,19 @@ export async function generateHtmlWithHuggingFaceStreamed({
         max_tokens: maxTokens,
         messages: buildChatMessages(prompt, baselineHtml),
         stream: true,
+        stream_options: {
+          include_usage: true,
+        },
       });
 
+      let usage: GenerationUsage | null = null;
+
       for await (const chunk of stream) {
+        const chunkUsage = normalizeOpenAiUsage((chunk as { usage?: unknown }).usage);
+        if (chunkUsage) {
+          usage = chunkUsage;
+        }
+
         const finishReason = chunk.choices?.[0]?.finish_reason;
         if (typeof finishReason === "string" && finishReason.length > 0) {
           streamFinishReason = finishReason;
@@ -847,6 +884,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
         status: "success",
         retryable: false,
         durationMs,
+        ...(usage ? { usage } : {}),
       });
 
       logHfGeneration("info", "attempt_succeeded", {

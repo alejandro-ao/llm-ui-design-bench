@@ -275,6 +275,8 @@ export async function POST(request: NextRequest) {
           usedModel: generation.usedModel,
           usedProvider: generation.usedProvider,
           attempts: generation.attempts,
+          usage: generation.usage ?? null,
+          cost: generation.cost ?? null,
         },
       },
       { status: 201 },
