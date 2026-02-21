@@ -21,12 +21,12 @@ interface GenerateWithAnthropicStreamedInput extends GenerateWithAnthropicInput,
 
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_TIMEOUT_MS = 600_000;
-const DEFAULT_MAX_TOKENS = 8_192;
+const DEFAULT_MAX_TOKENS = 32_768;
 
 function resolveAnthropicMaxTokens(rawMaxTokens: string | undefined): number {
   const parsed = Number.parseInt(rawMaxTokens ?? "", 10);
   if (Number.isFinite(parsed) && parsed >= 256) {
-    return Math.min(parsed, DEFAULT_MAX_TOKENS);
+    return parsed;
   }
 
   return DEFAULT_MAX_TOKENS;
