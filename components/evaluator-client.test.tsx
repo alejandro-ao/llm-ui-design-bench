@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ANTHROPIC_FRONTEND_DESIGN_SKILL_CONTENT,
+  ANTHROPIC_FRONTEND_DESIGN_SKILL_SOURCE_URL,
+} from "@/lib/skills";
 
 const replaceMock = vi.fn();
 
@@ -583,6 +587,35 @@ describe("EvaluatorClient", () => {
       providerCandidates: ["novita", "hf-inference"],
       skillContent: "Use magazine-style typography and dramatic spacing.",
     });
+  });
+
+  it("prefills Anthropic frontend skill from checkbox and allows edits", async () => {
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Add Skill|Edit Skill/i }));
+
+    const prefillCheckbox = screen.getByRole("checkbox", {
+      name: "Prefill with Anthropic frontend-design skill",
+    });
+    expect(prefillCheckbox).not.toBeChecked();
+
+    await user.click(prefillCheckbox);
+
+    const textarea = screen.getByLabelText("Skill Content");
+    expect((textarea as HTMLTextAreaElement).value).toBe(ANTHROPIC_FRONTEND_DESIGN_SKILL_CONTENT);
+
+    const sourceLink = screen.getByRole("link", { name: "View original skill on GitHub" });
+    expect(sourceLink).toHaveAttribute("href", ANTHROPIC_FRONTEND_DESIGN_SKILL_SOURCE_URL);
+
+    await user.type(textarea, "\n\nPrefer asymmetrical card composition.");
+    await user.click(screen.getByRole("button", { name: "Save Skill" }));
+
+    expect(screen.getByText(/Skill attached/i)).toBeInTheDocument();
   });
 
   it("sends typed task payload for multistep form generations", async () => {

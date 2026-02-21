@@ -33,6 +33,11 @@ import {
   type ProviderId,
 } from "@/lib/providers";
 import {
+  ANTHROPIC_FRONTEND_DESIGN_SKILL_CONTENT,
+  ANTHROPIC_FRONTEND_DESIGN_SKILL_SOURCE_URL,
+  isAnthropicFrontendDesignSkill,
+} from "@/lib/skills";
+import {
   buildTaskPrompt,
   DEFAULT_TASK_ID,
   getImageToCodeReference,
@@ -612,6 +617,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const [skillDraft, setSkillDraft] = useState("");
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
+  const [useAnthropicFrontendSkill, setUseAnthropicFrontendSkill] = useState(false);
   const [activeImageReferenceId, setActiveImageReferenceId] =
     useState<ImageToCodeReference["id"]>(DEFAULT_IMAGE_REFERENCE_ID);
   const [clientOrigin, setClientOrigin] = useState("http://localhost");
@@ -1201,6 +1207,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
   const openSkillModal = useCallback(() => {
     setSkillDraft(skillContent);
+    setUseAnthropicFrontendSkill(isAnthropicFrontendDesignSkill(skillContent));
     setSkillError(null);
     setIsSkillModalOpen(true);
   }, [skillContent]);
@@ -1209,7 +1216,18 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     setIsSkillModalOpen(false);
     setSkillError(null);
     setSkillDraft(skillContent);
+    setUseAnthropicFrontendSkill(isAnthropicFrontendDesignSkill(skillContent));
   }, [skillContent]);
+
+  const handleAnthropicSkillPrefillToggle = useCallback((checked: boolean) => {
+    setUseAnthropicFrontendSkill(checked);
+    if (!checked) {
+      return;
+    }
+
+    setSkillDraft(ANTHROPIC_FRONTEND_DESIGN_SKILL_CONTENT);
+    setSkillError(null);
+  }, []);
 
   const handleSaveSkill = useCallback(() => {
     const normalizedSkill = skillDraft.trim();
@@ -1225,6 +1243,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
 
   const handleClearSkill = useCallback(() => {
     setSkillDraft("");
+    setUseAnthropicFrontendSkill(false);
     setActiveSkillContent("");
     setSkillError(null);
   }, [setActiveSkillContent]);
@@ -2344,6 +2363,38 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-3 px-4">
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
+                <div className="flex items-start gap-2">
+                  <input
+                    id="anthropic-frontend-skill"
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary accent-primary"
+                    checked={useAnthropicFrontendSkill}
+                    onChange={(event) => handleAnthropicSkillPrefillToggle(event.target.checked)}
+                  />
+                  <div className="space-y-0.5">
+                    <label
+                      htmlFor="anthropic-frontend-skill"
+                      className="text-xs font-medium text-foreground"
+                    >
+                      Prefill with Anthropic frontend-design skill
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Loads the official Anthropic frontend skill as a starting point. You can edit
+                      it before saving.
+                    </p>
+                    <a
+                      href={ANTHROPIC_FRONTEND_DESIGN_SKILL_SOURCE_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] font-medium text-primary underline underline-offset-2"
+                    >
+                      View original skill on GitHub
+                    </a>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label
                   htmlFor="skill-content"
