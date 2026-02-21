@@ -31,6 +31,7 @@ Next.js + shadcn dashboard to compare how different models redesign the same bas
 - Call HF Inference Providers and persist generated HTML artifacts.
 - Render artifacts inside a sandboxed iframe.
 - Stream generation tokens into a live code view before switching to app preview.
+- Compute per-generation USD cost from provider usage metadata and a local, versioned pricing table.
 
 ## Storage mode
 
@@ -152,6 +153,15 @@ npm run lint
 npm test
 npm run build
 ```
+
+## Generation cost tracking
+
+- Cost is computed only when both are available:
+  - provider token usage metadata
+  - a matching model entry in `lib/pricing.ts`
+- If usage or pricing is missing, the UI shows `N/A`.
+- Pricing values are pinned in-repo and versioned via `PRICING_VERSION` in `lib/pricing.ts`.
+- Refresh `lib/pricing.ts` whenever provider pricing changes.
 
 ## API endpoints
 
