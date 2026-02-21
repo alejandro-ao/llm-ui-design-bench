@@ -57,7 +57,12 @@ describe("buildTaskPrompt", () => {
     expect(prompt).toContain(
       "Testimonial Portrait: https://example.com/task-assets/image-to-code/person-silhouette.png",
     );
-    expect(prompt).toContain("Recreate the provided mockup image");
+    expect(prompt).toContain(
+      "Goal: evaluate how accurately you can generate code for the provided Figma design shown on screen.",
+    );
+    expect(prompt).toContain(
+      "Use the provided design images where they appear in the design: hero background image and testimonial silhouette portrait.",
+    );
   });
 
 });

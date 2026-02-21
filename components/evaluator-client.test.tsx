@@ -27,6 +27,19 @@ type StreamBehavior =
       kind: "success";
       html: string;
       streamedText?: string;
+      usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+      } | null;
+      cost?: {
+        currency: "USD";
+        inputUsd: number;
+        outputUsd: number;
+        totalUsd: number;
+        pricingVersion: string;
+        pricingMatchedModel: string;
+      } | null;
       attempts?: Array<{
         model: string;
         provider: string;
@@ -109,6 +122,21 @@ function buildSuccessStream(
   html: string,
   streamedText = html,
   provider: GenerateRequestBody["provider"] = "huggingface",
+  options?: {
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    } | null;
+    cost?: {
+      currency: "USD";
+      inputUsd: number;
+      outputUsd: number;
+      totalUsd: number;
+      pricingVersion: string;
+      pricingMatchedModel: string;
+    } | null;
+  },
 ): Response {
   const usedProvider = provider === "huggingface" ? "auto" : provider;
   const resolvedAttempts = [
@@ -147,6 +175,8 @@ function buildSuccessStream(
         usedModel: modelId,
         usedProvider,
         attempts: resolvedAttempts,
+        usage: options?.usage ?? null,
+        cost: options?.cost ?? null,
       },
     }),
     encodeSseEvent("done", {}),
@@ -356,7 +386,10 @@ function installFetchMock() {
           return buildErrorStream(body.modelId, behavior.message, behavior.attempts, body.provider);
         }
 
-        return buildSuccessStream(body.modelId, behavior.html, behavior.streamedText, body.provider);
+        return buildSuccessStream(body.modelId, behavior.html, behavior.streamedText, body.provider, {
+          usage: behavior.usage,
+          cost: behavior.cost,
+        });
       }
 
       return new Response(JSON.stringify({ error: "not found" }), {
@@ -785,6 +818,79 @@ describe("EvaluatorClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Code" }));
     expect(screen.getByText(/MiniMax session output/i)).toBeInTheDocument();
+  });
+
+  it("shows per-model USD cost when generation metadata includes cost", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi session output</body></html>",
+      usage: {
+        inputTokens: 2000,
+        outputTokens: 4000,
+        totalTokens: 6000,
+      },
+      cost: {
+        currency: "USD",
+        inputUsd: 0.002,
+        outputUsd: 0.0103,
+        totalUsd: 0.0123,
+        pricingVersion: "2026-02-21",
+        pricingMatchedModel: "moonshotai/kimi-k2",
+      },
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Cost: $0.0123")).toBeInTheDocument();
+    });
+  });
+
+  it("shows N/A when generation metadata has no cost", async () => {
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>Kimi session output</body></html>",
+      usage: {
+        inputTokens: 2000,
+        outputTokens: 4000,
+        totalTokens: 6000,
+      },
+      cost: null,
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+    await user.type(screen.getByPlaceholderText("hf_..."), "hf_manual_key");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 1 model output in this session only.")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Cost: N/A")).toBeInTheDocument();
   });
 
   it("replaces fenced streamed text with final extracted html on completion", async () => {
