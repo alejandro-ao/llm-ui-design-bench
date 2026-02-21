@@ -77,7 +77,7 @@ const REFERENCE_BASELINE_NOTE =
 const MULTISTEP_EVALUATION_FOCUS =
   "This task evaluates whether a model can design a complete SaaS onboarding wizard across five required steps, with coherent information hierarchy, clear progression, and usable validation/error states.";
 const IMAGE_TO_CODE_EVALUATION_FOCUS =
-  "This task evaluates how accurately a model can transform a mockup image and supporting image assets into a usable, responsive website that visually matches the reference.";
+  "This task evaluates how accurately a model can generate code for the provided Figma design shown on screen, using the supplied hero background image and testimonial silhouette portrait.";
 const TASK_OPTIONS = listTaskOptions();
 const TASK_IDS = TASK_OPTIONS.map((task) => task.id);
 const DEFAULT_IMAGE_REFERENCE_ID = IMAGE_TO_CODE_REFERENCES[0]?.id ?? "figma_landing";
@@ -133,6 +133,25 @@ interface GenerationAttempt {
   retryable: boolean;
   durationMs: number;
   detail?: string;
+  usage?: GenerationUsage;
+  cost?: GenerationCost | null;
+}
+
+interface GenerationUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  totalTokens: number;
+}
+
+interface GenerationCost {
+  currency: "USD";
+  inputUsd: number;
+  outputUsd: number;
+  cachedInputUsd?: number;
+  totalUsd: number;
+  pricingVersion: string;
+  pricingMatchedModel: string;
 }
 
 interface SessionModel {
@@ -147,6 +166,8 @@ interface SessionModel {
   finalHtml: string | null;
   logs: string[];
   attempts: GenerationAttempt[];
+  generationUsage: GenerationUsage | null;
+  generationCost: GenerationCost | null;
   error: string | null;
 }
 
@@ -410,6 +431,16 @@ function formatAttemptLogLine(
   return `Attempt ${index + 1}/${total}: ${attempt.model} [${attempt.provider}] ${status}${statusCode}${retrySuffix}`;
 }
 
+function formatUsdCost(cost: GenerationCost | null): string {
+  const total = cost?.totalUsd;
+  if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
+    return "N/A";
+  }
+
+  const fractionDigits = total >= 1 ? 2 : total >= 0.01 ? 4 : 6;
+  return `$${total.toFixed(fractionDigits)}`;
+}
+
 function isJsonResponse(response: Response): boolean {
   const contentType = response.headers.get("content-type") ?? "";
   return contentType.toLowerCase().includes("application/json");
@@ -523,6 +554,8 @@ function buildInitialBaselineModel(options?: {
     finalHtml: html,
     logs: [],
     attempts: [],
+    generationUsage: null,
+    generationCost: null,
     error: null,
   };
 }
@@ -1148,6 +1181,8 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
           finalHtml: null,
           logs: [],
           attempts: [],
+          generationUsage: null,
+          generationCost: null,
           error: null,
         },
       ]);
@@ -1396,6 +1431,8 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
               finalHtml: null,
               logs: [],
               attempts: [],
+              generationUsage: null,
+              generationCost: null,
               error: null,
             }
           : model,
@@ -1430,6 +1467,8 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
           finalHtml: null,
           logs: [],
           attempts: [],
+          generationUsage: null,
+          generationCost: null,
           error: null,
         }));
         appendTaskModelLog(generationTaskId, model.modelId, `Started generation (${queuePosition}).`);
@@ -1608,6 +1647,8 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   finalHtml: payload.result.html,
                   streamedHtml: payload.result.html,
                   attempts: payload.generation.attempts,
+                  generationUsage: payload.generation.usage ?? null,
+                  generationCost: payload.generation.cost ?? null,
                   error: null,
                 }));
 
@@ -1627,6 +1668,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   generationTaskId,
                   model.modelId,
                   "Generation complete for this session.",
+                );
+                appendTaskModelLog(
+                  generationTaskId,
+                  model.modelId,
+                  `Generation cost (USD): ${formatUsdCost(payload.generation.cost ?? null)}.`,
                 );
                 setActiveMainTab("app");
                 continue;
@@ -2145,6 +2191,11 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                           {getStatusBadge(model.status)}
                         </div>
                         <p className="truncate text-[10px] text-muted-foreground">{model.modelId}</p>
+                        {model.sourceType === "model" ? (
+                          <p className="truncate text-[10px] text-muted-foreground">
+                            Cost: {formatUsdCost(model.generationCost)}
+                          </p>
+                        ) : null}
                       </button>
                     );
                   })}

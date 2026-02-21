@@ -65,7 +65,7 @@ export const IMAGE_TO_CODE_REFERENCES: ImageToCodeReference[] = [
     id: "figma_landing",
     label: "Figma Landing Page - Neon",
     description:
-      "Dark neon marketing landing page with a glowing hero, KPI section, platform cards, and testimonial block.",
+      "Figma landing page design shown on screen, with a glowing hero, KPI section, platform cards, and testimonial block.",
     assetPath: "/task-assets/image-to-code/figma.png",
     supportingAssets: [
       {
@@ -103,7 +103,7 @@ const TASK_DEFINITIONS: TaskDefinition[] = [
     id: "image_to_code",
     label: "Image to Code",
     description:
-      "Convert a mockup image and provided assets into a usable HTML/CSS/JS page that closely matches the design.",
+      "Evaluate how accurately a model can generate code for the provided Figma design shown on screen, using the supplied hero background image and testimonial silhouette portrait.",
     promptVersion: "v1",
     usesBaselineArtifact: false,
   },
@@ -334,7 +334,8 @@ function buildImageToCodePrompt(context: ImageToCodeTaskContext): string {
     .join("\n");
 
   return [
-    "Recreate the provided mockup image as faithfully as possible in HTML/CSS/JS.",
+    "Goal: evaluate how accurately you can generate code for the provided Figma design shown on screen.",
+    "Use the provided design images where they appear in the design: hero background image and testimonial silhouette portrait.",
     "",
     `Reference image label: ${reference.label}`,
     `Reference image URL: ${context.imageUrl}`,
