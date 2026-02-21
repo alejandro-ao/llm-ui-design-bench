@@ -9,6 +9,7 @@ import {
   StreamingCallbacks,
   SYSTEM_PROMPT,
 } from "@/lib/generation-types";
+import { normalizeGenerationUsage } from "@/lib/pricing";
 
 interface GenerateWithOpenAiInput {
   apiKey: string;
@@ -22,6 +23,24 @@ interface GenerateWithOpenAiStreamedInput extends GenerateWithOpenAiInput, Strea
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_TOKENS = 32_768;
+
+function normalizeOpenAiUsage(usage: unknown) {
+  const usagePayload = (usage ?? {}) as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    prompt_tokens_details?: {
+      cached_tokens?: unknown;
+    };
+  };
+
+  return normalizeGenerationUsage({
+    inputTokens: usagePayload.prompt_tokens,
+    outputTokens: usagePayload.completion_tokens,
+    totalTokens: usagePayload.total_tokens,
+    cachedInputTokens: usagePayload.prompt_tokens_details?.cached_tokens,
+  });
+}
 
 function coerceMessageContent(value: unknown): string {
   if (typeof value === "string") {
@@ -128,6 +147,7 @@ export async function generateHtmlWithOpenAi({
         },
       ],
     });
+    const usage = normalizeOpenAiUsage(payload.usage);
 
     const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
     const html = extractHtmlDocument(content);
@@ -138,6 +158,7 @@ export async function generateHtmlWithOpenAi({
       status: "success",
       retryable: false,
       durationMs: Date.now() - startedAt,
+      ...(usage ? { usage } : {}),
     });
 
     return {
@@ -199,11 +220,20 @@ export async function generateHtmlWithOpenAiStreamed({
         },
       ],
       stream: true,
+      stream_options: {
+        include_usage: true,
+      },
     });
 
     let rawContent = "";
+    let usage = null;
 
     for await (const chunk of stream) {
+      const chunkUsage = normalizeOpenAiUsage((chunk as { usage?: unknown }).usage);
+      if (chunkUsage) {
+        usage = chunkUsage;
+      }
+
       const token = coerceMessageContent(chunk.choices?.[0]?.delta?.content);
       if (!token) {
         continue;
@@ -221,6 +251,7 @@ export async function generateHtmlWithOpenAiStreamed({
       status: "success",
       retryable: false,
       durationMs: Date.now() - startedAt,
+      ...(usage ? { usage } : {}),
     });
 
     return {

@@ -119,6 +119,19 @@ describe("POST /api/generate/stream", () => {
               durationMs: 500,
             },
           ],
+          usage: {
+            inputTokens: 1100,
+            outputTokens: 2100,
+            totalTokens: 3200,
+          },
+          cost: {
+            currency: "USD",
+            inputUsd: 0.0022,
+            outputUsd: 0.0168,
+            totalUsd: 0.019,
+            pricingVersion: "2026-02-21",
+            pricingMatchedModel: "gpt-4.1",
+          },
         };
       },
     );
@@ -149,6 +162,12 @@ describe("POST /api/generate/stream", () => {
       };
       generation: {
         usedProvider: string;
+        usage?: {
+          totalTokens: number;
+        } | null;
+        cost?: {
+          totalUsd: number;
+        } | null;
       };
     }>(rawStream, "complete");
 
@@ -159,6 +178,12 @@ describe("POST /api/generate/stream", () => {
       },
       generation: {
         usedProvider: "openai",
+        usage: {
+          totalTokens: 3200,
+        },
+        cost: {
+          totalUsd: 0.019,
+        },
       },
     });
   });

@@ -24,6 +24,7 @@ import {
   buildPromptWithSkill,
   MAX_SKILL_CONTENT_CHARS,
 } from "@/lib/prompt";
+import { applyPricingToGenerationResult } from "@/lib/pricing";
 import {
   buildTaskPrompt,
   getTaskDefinition,
@@ -264,6 +265,7 @@ export async function POST(request: NextRequest) {
                 enqueue("log", { message });
               },
             });
+            const pricedGeneration = applyPricingToGenerationResult("huggingface", generation);
 
             enqueue("log", {
               message: "Model output received for this session.",
@@ -275,12 +277,14 @@ export async function POST(request: NextRequest) {
                 label: deriveModelLabel(modelId),
                 provider: "huggingface",
                 vendor: inferVendorFromModelId(modelId),
-                html: generation.html,
+                html: pricedGeneration.html,
               },
               generation: {
-                usedModel: generation.usedModel,
-                usedProvider: generation.usedProvider,
-                attempts: generation.attempts,
+                usedModel: pricedGeneration.usedModel,
+                usedProvider: pricedGeneration.usedProvider,
+                attempts: pricedGeneration.attempts,
+                usage: pricedGeneration.usage ?? null,
+                cost: pricedGeneration.cost ?? null,
               },
             });
 

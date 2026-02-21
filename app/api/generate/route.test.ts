@@ -81,6 +81,19 @@ describe("POST /api/generate", () => {
           durationMs: 700,
         },
       ],
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 2000,
+        totalTokens: 3000,
+      },
+      cost: {
+        currency: "USD",
+        inputUsd: 0.002,
+        outputUsd: 0.016,
+        totalUsd: 0.018,
+        pricingVersion: "2026-02-21",
+        pricingMatchedModel: "gpt-4.1",
+      },
     });
 
     const response = await POST(
@@ -107,6 +120,12 @@ describe("POST /api/generate", () => {
       };
       generation: {
         usedProvider: string;
+        usage: {
+          totalTokens: number;
+        } | null;
+        cost: {
+          totalUsd: number;
+        } | null;
       };
     };
 
@@ -116,6 +135,8 @@ describe("POST /api/generate", () => {
       vendor: "openai",
     });
     expect(payload.generation.usedProvider).toBe("openai");
+    expect(payload.generation.usage?.totalTokens).toBe(3000);
+    expect(payload.generation.cost?.totalUsd).toBe(0.018);
     expect(generateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "openai",

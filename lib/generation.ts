@@ -20,6 +20,7 @@ import {
   generateHtmlWithOpenAi,
   generateHtmlWithOpenAiStreamed,
 } from "@/lib/openai-generation";
+import { applyPricingToGenerationResult } from "@/lib/pricing";
 import type { ProviderId } from "@/lib/providers";
 
 export { GenerationError } from "@/lib/generation-types";
@@ -43,7 +44,7 @@ export interface GenerateHtmlStreamedInput
 export async function generateHtml(input: GenerateHtmlInput): Promise<GenerationResult> {
   if (input.provider === "huggingface") {
     try {
-      return await generateHtmlWithHuggingFace({
+      const generation = await generateHtmlWithHuggingFace({
         hfApiKey: input.apiKey,
         modelId: input.modelId,
         provider: input.providerHint,
@@ -53,6 +54,7 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
         baselineHtml: input.baselineHtml,
         traceId: input.traceId,
       });
+      return applyPricingToGenerationResult("huggingface", generation);
     } catch (error) {
       if (error instanceof HFGenerationError) {
         throw new GenerationError(error.message, error.status, error.attempts);
@@ -63,29 +65,32 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
   }
 
   if (input.provider === "openai") {
-    return generateHtmlWithOpenAi({
+    const generation = await generateHtmlWithOpenAi({
       apiKey: input.apiKey,
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
     });
+    return applyPricingToGenerationResult("openai", generation);
   }
 
   if (input.provider === "anthropic") {
-    return generateHtmlWithAnthropic({
+    const generation = await generateHtmlWithAnthropic({
       apiKey: input.apiKey,
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
     });
+    return applyPricingToGenerationResult("anthropic", generation);
   }
 
-  return generateHtmlWithGoogle({
+  const generation = await generateHtmlWithGoogle({
     apiKey: input.apiKey,
     modelId: input.modelId,
     prompt: input.prompt,
     baselineHtml: input.baselineHtml,
   });
+  return applyPricingToGenerationResult("google", generation);
 }
 
 export async function generateHtmlStreamed(
@@ -93,7 +98,7 @@ export async function generateHtmlStreamed(
 ): Promise<GenerationResult> {
   if (input.provider === "huggingface") {
     try {
-      return await generateHtmlWithHuggingFaceStreamed({
+      const generation = await generateHtmlWithHuggingFaceStreamed({
         hfApiKey: input.apiKey,
         modelId: input.modelId,
         provider: input.providerHint,
@@ -106,6 +111,7 @@ export async function generateHtmlStreamed(
         onToken: input.onToken,
         onLog: input.onLog,
       });
+      return applyPricingToGenerationResult("huggingface", generation);
     } catch (error) {
       if (error instanceof HFGenerationError) {
         throw new GenerationError(error.message, error.status, error.attempts);
@@ -116,7 +122,7 @@ export async function generateHtmlStreamed(
   }
 
   if (input.provider === "openai") {
-    return generateHtmlWithOpenAiStreamed({
+    const generation = await generateHtmlWithOpenAiStreamed({
       apiKey: input.apiKey,
       modelId: input.modelId,
       prompt: input.prompt,
@@ -125,10 +131,11 @@ export async function generateHtmlStreamed(
       onToken: input.onToken,
       onLog: input.onLog,
     });
+    return applyPricingToGenerationResult("openai", generation);
   }
 
   if (input.provider === "anthropic") {
-    return generateHtmlWithAnthropicStreamed({
+    const generation = await generateHtmlWithAnthropicStreamed({
       apiKey: input.apiKey,
       modelId: input.modelId,
       prompt: input.prompt,
@@ -137,9 +144,10 @@ export async function generateHtmlStreamed(
       onToken: input.onToken,
       onLog: input.onLog,
     });
+    return applyPricingToGenerationResult("anthropic", generation);
   }
 
-  return generateHtmlWithGoogleStreamed({
+  const generation = await generateHtmlWithGoogleStreamed({
     apiKey: input.apiKey,
     modelId: input.modelId,
     prompt: input.prompt,
@@ -148,4 +156,5 @@ export async function generateHtmlStreamed(
     onToken: input.onToken,
     onLog: input.onLog,
   });
+  return applyPricingToGenerationResult("google", generation);
 }

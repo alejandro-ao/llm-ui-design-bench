@@ -4,9 +4,11 @@ import {
   GenerationAttempt,
   GenerationError,
   GenerationResult,
+  type GenerationUsage,
   StreamingCallbacks,
   SYSTEM_PROMPT,
 } from "@/lib/generation-types";
+import { normalizeGenerationUsage } from "@/lib/pricing";
 
 interface GenerateWithGoogleInput {
   apiKey: string;
@@ -87,6 +89,24 @@ function extractGoogleError(payload: unknown): string | null {
   return null;
 }
 
+function extractGoogleUsage(payload: unknown): GenerationUsage | null {
+  const maybePayload = payload as {
+    usageMetadata?: {
+      promptTokenCount?: unknown;
+      candidatesTokenCount?: unknown;
+      totalTokenCount?: unknown;
+      cachedContentTokenCount?: unknown;
+    };
+  };
+
+  return normalizeGenerationUsage({
+    inputTokens: maybePayload.usageMetadata?.promptTokenCount,
+    outputTokens: maybePayload.usageMetadata?.candidatesTokenCount,
+    totalTokens: maybePayload.usageMetadata?.totalTokenCount,
+    cachedInputTokens: maybePayload.usageMetadata?.cachedContentTokenCount,
+  });
+}
+
 function buildGoogleUrl(modelId: string, apiKey: string): string {
   const baseUrl = process.env.GOOGLE_BASE_URL?.trim() || DEFAULT_GOOGLE_BASE_URL;
   const normalizedBase = baseUrl.replace(/\/+$/, "");
@@ -98,7 +118,7 @@ async function requestGoogle({
   modelId,
   prompt,
   baselineHtml,
-}: GenerateWithGoogleInput): Promise<string> {
+}: GenerateWithGoogleInput): Promise<{ html: string; usage: GenerationUsage | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
@@ -141,7 +161,10 @@ async function requestGoogle({
       throw new GenerationError("Google returned empty output.", 422);
     }
 
-    return extractHtmlDocument(text);
+    return {
+      html: extractHtmlDocument(text),
+      usage: extractGoogleUsage(payload),
+    };
   } catch (error) {
     if (error instanceof GenerationError) {
       throw error;
@@ -164,7 +187,7 @@ export async function generateHtmlWithGoogle(
   const startedAt = Date.now();
 
   try {
-    const html = await requestGoogle(input);
+    const response = await requestGoogle(input);
 
     attempts.push({
       model: input.modelId,
@@ -172,10 +195,11 @@ export async function generateHtmlWithGoogle(
       status: "success",
       retryable: false,
       durationMs: Date.now() - startedAt,
+      ...(response.usage ? { usage: response.usage } : {}),
     });
 
     return {
-      html,
+      html: response.html,
       usedModel: input.modelId,
       usedProvider: "google",
       attempts,

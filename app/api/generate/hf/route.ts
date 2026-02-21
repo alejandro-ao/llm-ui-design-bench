@@ -12,6 +12,7 @@ import {
   type HfGenerationAttempt,
 } from "@/lib/hf-generation";
 import { inferVendorFromModelId } from "@/lib/models";
+import { applyPricingToGenerationResult } from "@/lib/pricing";
 import {
   buildPromptWithSkill,
   MAX_SKILL_CONTENT_CHARS,
@@ -238,13 +239,14 @@ export async function POST(request: NextRequest) {
       baselineHtml,
       traceId: requestId,
     });
+    const pricedGeneration = applyPricingToGenerationResult("huggingface", generation);
     logGenerateRoute("info", "generation_completed", {
       requestId,
       taskId,
-      usedModel: generation.usedModel,
-      usedProvider: generation.usedProvider,
-      attempts: summarizeAttempts(generation.attempts),
-      generatedChars: generation.html.length,
+      usedModel: pricedGeneration.usedModel,
+      usedProvider: pricedGeneration.usedProvider,
+      attempts: summarizeAttempts(pricedGeneration.attempts),
+      generatedChars: pricedGeneration.html.length,
     });
 
     const result = {
@@ -252,7 +254,7 @@ export async function POST(request: NextRequest) {
       label: deriveModelLabel(modelId),
       provider: "huggingface" as const,
       vendor: inferVendorFromModelId(modelId),
-      html: generation.html,
+      html: pricedGeneration.html,
     };
     logGenerateRoute("info", "request_succeeded", {
       requestId,
@@ -266,9 +268,11 @@ export async function POST(request: NextRequest) {
         ok: true,
         result,
         generation: {
-          usedModel: generation.usedModel,
-          usedProvider: generation.usedProvider,
-          attempts: generation.attempts,
+          usedModel: pricedGeneration.usedModel,
+          usedProvider: pricedGeneration.usedProvider,
+          attempts: pricedGeneration.attempts,
+          usage: pricedGeneration.usage ?? null,
+          cost: pricedGeneration.cost ?? null,
         },
       },
       { status: 201 },
