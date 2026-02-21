@@ -617,7 +617,6 @@ describe("EvaluatorClient", () => {
 
     expect(screen.getByText(/Skill attached/i)).toBeInTheDocument();
   });
-
   it("sends typed task payload for multistep form generations", async () => {
     streamBehaviors["moonshotai/Kimi-K2.5"] = {
       kind: "success",

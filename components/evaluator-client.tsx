@@ -1228,7 +1228,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     setSkillDraft(ANTHROPIC_FRONTEND_DESIGN_SKILL_CONTENT);
     setSkillError(null);
   }, []);
-
   const handleSaveSkill = useCallback(() => {
     const normalizedSkill = skillDraft.trim();
     if (normalizedSkill.length > MAX_SKILL_CONTENT_CHARS) {
@@ -2394,7 +2393,6 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   </div>
                 </div>
               </div>
-
               <div className="space-y-1.5">
                 <label
                   htmlFor="skill-content"
