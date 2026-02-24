@@ -1018,6 +1018,56 @@ describe("EvaluatorClient", () => {
     expect(generateRequests[0]).not.toHaveProperty("hfApiKey");
   });
 
+  it("hides Hugging Face key input in mixed-provider modal when oauth is connected", async () => {
+    oauthConnected = true;
+
+    streamBehaviors["moonshotai/Kimi-K2.5"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>HF output</body></html>",
+    };
+    streamBehaviors["gpt-4.1"] = {
+      kind: "success",
+      html: "<!doctype html><html><body>OpenAI output</body></html>",
+    };
+
+    render(<EvaluatorClient prompt="Prompt" promptVersion="v1" />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Baseline (Original) output")).toBeInTheDocument();
+    });
+
+    await addModelFromSearch("kimi", "Kimi-K2.5");
+    await addPresetProviderModel("openai", "gpt-4.1");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate Selected" }));
+
+    expect(screen.queryByPlaceholderText("hf_...")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-openai-test");
+    await user.click(screen.getByRole("button", { name: "Generate Selected Models" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generated 2 model outputs in this session only.")).toBeInTheDocument();
+    });
+
+    expect(generateRequests).toHaveLength(2);
+    expect(generateRequests.find((request) => request.provider === "huggingface")).toMatchObject({
+      provider: "huggingface",
+      modelId: "moonshotai/Kimi-K2.5",
+      providerCandidates: ["novita", "hf-inference"],
+    });
+    expect(generateRequests.find((request) => request.provider === "huggingface")).not.toHaveProperty(
+      "hfApiKey",
+    );
+    expect(generateRequests.find((request) => request.provider === "openai")).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-4.1",
+      openaiApiKey: "sk-openai-test",
+    });
+  });
+
   it("retains manual API key across multiple generation runs in the same session", async () => {
     streamBehaviors["moonshotai/Kimi-K2.5"] = {
       kind: "success",

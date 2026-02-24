@@ -1494,7 +1494,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
             taskContext: generationTaskContext,
           };
 
-          if (modelProvider === "huggingface" && hfKey) {
+          if (modelProvider === "huggingface" && hfKey && !oauthConnected) {
             body.hfApiKey = hfKey;
           }
 
@@ -1750,6 +1750,7 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
     googleApiKey,
     hfApiKey,
     loadOAuthState,
+    oauthConnected,
     openaiApiKey,
     patchTaskSessionModel,
     setActiveSelectedModelId,
@@ -1862,6 +1863,14 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
   const showOAuthControls =
     (activeProvider === "huggingface" || hasSelectedHfModels) &&
     (oauthStatusLoading || oauthAvailable);
+  const providersRequiringApiKeys = useMemo(() => {
+    const providers = selectedProviderIds.length > 0 ? selectedProviderIds : [activeProvider];
+    if (!oauthConnected) {
+      return providers;
+    }
+
+    return providers.filter((provider) => provider !== "huggingface");
+  }, [activeProvider, oauthConnected, selectedProviderIds]);
   const selectedProviderLabels = selectedProviderIds.map((provider) => getProviderLabel(provider));
   const getApiKeyPlaceholder = (provider: ProviderId): string => {
     if (provider === "huggingface") {
@@ -2590,48 +2599,46 @@ export function EvaluatorClient(_props: EvaluatorClientProps) {
                   </div>
                 ) : null}
 
-                {(selectedProviderIds.length > 0 ? selectedProviderIds : [activeProvider]).map(
-                  (provider) => {
-                    const apiKeyValue = getApiKeyValue(provider);
-                    const isHuggingFace = provider === "huggingface";
+                {providersRequiringApiKeys.map((provider) => {
+                  const apiKeyValue = getApiKeyValue(provider);
+                  const isHuggingFace = provider === "huggingface";
 
-                    return (
-                      <div key={`api-key-${provider}`} className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">
-                          {getProviderLabel(provider)} API Key
-                          <span className="ml-1 text-muted-foreground/50">
-                            {isHuggingFace && oauthAvailable
-                              ? "optional when OAuth is connected"
-                              : "required"}
-                          </span>
-                        </label>
-                        <p className="text-[11px] text-muted-foreground/70">
-                          Used for {selectedProviderModelCounts[provider]} selected model
-                          {selectedProviderModelCounts[provider] === 1 ? "" : "s"}.
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="password"
-                            value={apiKeyValue}
-                            onChange={(event) => setApiKeyValue(provider, event.target.value)}
-                            placeholder={getApiKeyPlaceholder(provider)}
-                            autoComplete="off"
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0"
-                            onClick={() => setApiKeyValue(provider, "")}
-                            disabled={generationLoading || apiKeyValue.length === 0}
-                          >
-                            Clear
-                          </Button>
-                        </div>
+                  return (
+                    <div key={`api-key-${provider}`} className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {getProviderLabel(provider)} API Key
+                        <span className="ml-1 text-muted-foreground/50">
+                          {isHuggingFace && oauthAvailable
+                            ? "optional when OAuth is connected"
+                            : "required"}
+                        </span>
+                      </label>
+                      <p className="text-[11px] text-muted-foreground/70">
+                        Used for {selectedProviderModelCounts[provider]} selected model
+                        {selectedProviderModelCounts[provider] === 1 ? "" : "s"}.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="password"
+                          value={apiKeyValue}
+                          onChange={(event) => setApiKeyValue(provider, event.target.value)}
+                          placeholder={getApiKeyPlaceholder(provider)}
+                          autoComplete="off"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => setApiKeyValue(provider, "")}
+                          disabled={generationLoading || apiKeyValue.length === 0}
+                        >
+                          Clear
+                        </Button>
                       </div>
-                    );
-                  },
-                )}
+                    </div>
+                  );
+                })}
 
                 {selectedProviderIds.includes("huggingface") ? (
                   <div className="space-y-1">
