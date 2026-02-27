@@ -3,6 +3,7 @@ import {
   generateHtmlWithAnthropicStreamed,
 } from "@/lib/anthropic-generation";
 import {
+  type GenerationReferenceImage,
   GenerationError,
   GenerationResult,
   StreamingCallbacks,
@@ -34,6 +35,7 @@ export interface GenerateHtmlInput {
   billTo?: string;
   prompt: string;
   baselineHtml: string;
+  referenceImage?: GenerationReferenceImage;
   traceId?: string;
 }
 
@@ -52,6 +54,7 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
         billTo: input.billTo,
         prompt: input.prompt,
         baselineHtml: input.baselineHtml,
+        referenceImage: input.referenceImage,
         traceId: input.traceId,
       });
       return applyPricingToGenerationResult("huggingface", generation);
@@ -70,6 +73,7 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
+      referenceImage: input.referenceImage,
     });
     return applyPricingToGenerationResult("openai", generation);
   }
@@ -80,6 +84,7 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
+      referenceImage: input.referenceImage,
     });
     return applyPricingToGenerationResult("anthropic", generation);
   }
@@ -89,6 +94,7 @@ export async function generateHtml(input: GenerateHtmlInput): Promise<Generation
     modelId: input.modelId,
     prompt: input.prompt,
     baselineHtml: input.baselineHtml,
+    referenceImage: input.referenceImage,
   });
   return applyPricingToGenerationResult("google", generation);
 }
@@ -106,6 +112,7 @@ export async function generateHtmlStreamed(
         billTo: input.billTo,
         prompt: input.prompt,
         baselineHtml: input.baselineHtml,
+        referenceImage: input.referenceImage,
         traceId: input.traceId,
         onAttempt: input.onAttempt,
         onToken: input.onToken,
@@ -127,6 +134,7 @@ export async function generateHtmlStreamed(
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
+      referenceImage: input.referenceImage,
       onAttempt: input.onAttempt,
       onToken: input.onToken,
       onLog: input.onLog,
@@ -140,6 +148,7 @@ export async function generateHtmlStreamed(
       modelId: input.modelId,
       prompt: input.prompt,
       baselineHtml: input.baselineHtml,
+      referenceImage: input.referenceImage,
       onAttempt: input.onAttempt,
       onToken: input.onToken,
       onLog: input.onLog,
@@ -152,6 +161,7 @@ export async function generateHtmlStreamed(
     modelId: input.modelId,
     prompt: input.prompt,
     baselineHtml: input.baselineHtml,
+    referenceImage: input.referenceImage,
     onAttempt: input.onAttempt,
     onToken: input.onToken,
     onLog: input.onLog,

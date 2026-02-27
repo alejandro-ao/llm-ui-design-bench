@@ -22,6 +22,7 @@ import {
   resolveTaskRequest,
   TaskValidationError,
 } from "@/lib/tasks";
+import { buildTaskReferenceImage } from "@/lib/task-reference-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -246,6 +247,17 @@ export async function POST(request: NextRequest) {
     const basePrompt = buildTaskPrompt(taskId, taskContext);
     const prompt = buildPromptWithSkill(basePrompt, normalizedSkillContent);
     const baselineHtml = taskDefinition.usesBaselineArtifact ? await getBaselineHtml() : "";
+    let referenceImage = null;
+
+    try {
+      referenceImage = await buildTaskReferenceImage(taskId, taskContext);
+    } catch (error) {
+      logGenerateRoute("warn", "reference_image_unavailable", {
+        requestId,
+        taskId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const generation = await generateHtml({
       provider,
@@ -256,6 +268,7 @@ export async function POST(request: NextRequest) {
       billTo: billTo || undefined,
       prompt,
       baselineHtml,
+      referenceImage: referenceImage ?? undefined,
       traceId: requestId,
     });
 

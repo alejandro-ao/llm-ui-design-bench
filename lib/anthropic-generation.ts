@@ -3,6 +3,7 @@ import {
   buildUserPrompt,
   GenerationAttempt,
   GenerationError,
+  type GenerationReferenceImage,
   GenerationResult,
   type GenerationUsage,
   StreamingCallbacks,
@@ -15,6 +16,7 @@ interface GenerateWithAnthropicInput {
   modelId: string;
   prompt: string;
   baselineHtml: string;
+  referenceImage?: GenerationReferenceImage;
 }
 
 interface GenerateWithAnthropicStreamedInput extends GenerateWithAnthropicInput, StreamingCallbacks {}
@@ -237,11 +239,68 @@ function buildAnthropicUrl(): string {
   return `${baseUrl.replace(/\/+$/, "")}/v1/messages`;
 }
 
+function buildAnthropicUserContent(
+  prompt: string,
+  baselineHtml: string,
+  referenceImage: GenerationReferenceImage | undefined,
+):
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | {
+          type: "image";
+          source: {
+            type: "base64";
+            media_type: string;
+            data: string;
+          };
+        }
+    > {
+  const userPrompt = buildUserPrompt(prompt, baselineHtml);
+  if (!referenceImage) {
+    return userPrompt;
+  }
+
+  return [
+    {
+      type: "text",
+      text: userPrompt,
+    },
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: referenceImage.mimeType,
+        data: referenceImage.base64Data,
+      },
+    },
+  ];
+}
+
+function isUnsupportedImageInputError(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 422) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  if (!normalized.includes("image")) {
+    return false;
+  }
+
+  return (
+    normalized.includes("not support") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("only text") ||
+    normalized.includes("invalid type")
+  );
+}
+
 async function requestAnthropic({
   apiKey,
   modelId,
   prompt,
   baselineHtml,
+  referenceImage,
 }: GenerateWithAnthropicInput): Promise<{ html: string; usage: GenerationUsage | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -262,7 +321,7 @@ async function requestAnthropic({
         messages: [
           {
             role: "user",
-            content: buildUserPrompt(prompt, baselineHtml),
+            content: buildAnthropicUserContent(prompt, baselineHtml, referenceImage),
           },
         ],
       }),
@@ -318,7 +377,25 @@ export async function generateHtmlWithAnthropic(
   const startedAt = Date.now();
 
   try {
-    const response = await requestAnthropic(input);
+    let response: Awaited<ReturnType<typeof requestAnthropic>>;
+
+    try {
+      response = await requestAnthropic(input);
+    } catch (error) {
+      if (
+        input.referenceImage &&
+        error instanceof GenerationError &&
+        isUnsupportedImageInputError(error.status, error.message)
+      ) {
+        response = await requestAnthropic({
+          ...input,
+          referenceImage: undefined,
+        });
+      } else {
+        throw error;
+      }
+    }
+
     attempts.push({
       model: input.modelId,
       provider: "anthropic",
@@ -358,6 +435,7 @@ async function requestAnthropicStreamed({
   modelId,
   prompt,
   baselineHtml,
+  referenceImage,
   onToken,
 }: GenerateWithAnthropicStreamedInput): Promise<{
   html: string;
@@ -384,7 +462,7 @@ async function requestAnthropicStreamed({
         messages: [
           {
             role: "user",
-            content: buildUserPrompt(prompt, baselineHtml),
+            content: buildAnthropicUserContent(prompt, baselineHtml, referenceImage),
           },
         ],
       }),
@@ -506,10 +584,30 @@ export async function generateHtmlWithAnthropicStreamed({
   await onLog?.("Starting Anthropic generation.");
 
   try {
-    const result = await requestAnthropicStreamed({
-      ...input,
-      onToken,
-    });
+    let result: Awaited<ReturnType<typeof requestAnthropicStreamed>>;
+
+    try {
+      result = await requestAnthropicStreamed({
+        ...input,
+        onToken,
+      });
+    } catch (error) {
+      if (
+        input.referenceImage &&
+        error instanceof GenerationError &&
+        isUnsupportedImageInputError(error.status, error.message)
+      ) {
+        await onLog?.("Anthropic rejected image input. Retrying without image.");
+        result = await requestAnthropicStreamed({
+          ...input,
+          referenceImage: undefined,
+          onToken,
+        });
+      } else {
+        throw error;
+      }
+    }
+
     if (result.stopReason === "max_tokens") {
       await onLog?.(
         "Anthropic stop_reason=max_tokens. Output may be truncated; consider increasing GENERATION_MAX_TOKENS.",

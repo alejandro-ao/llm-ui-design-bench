@@ -36,6 +36,11 @@ export interface GenerationCost {
   pricingMatchedModel: string;
 }
 
+export interface GenerationReferenceImage {
+  mimeType: string;
+  base64Data: string;
+}
+
 export interface StreamAttemptInfo {
   attemptNumber: number;
   totalAttempts: number;

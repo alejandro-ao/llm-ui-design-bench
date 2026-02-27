@@ -290,6 +290,10 @@ describe("POST /api/generate/hf/stream", () => {
     const calledInput = generateStreamMock.mock.calls.at(-1)?.[0] as {
       prompt: string;
       baselineHtml: string;
+      referenceImage?: {
+        mimeType: string;
+        base64Data: string;
+      };
     };
     expect(calledInput.baselineHtml).toBe("");
     expect(calledInput.prompt).toContain("Reference image label: Figma Landing Page - Neon");
@@ -299,6 +303,10 @@ describe("POST /api/generate/hf/stream", () => {
     expect(calledInput.prompt).toContain(
       "Testimonial Portrait: http://localhost/task-assets/image-to-code/person-silhouette.png",
     );
+    expect(calledInput.referenceImage).toMatchObject({
+      mimeType: "image/png",
+    });
+    expect(calledInput.referenceImage?.base64Data).toMatch(/^[A-Za-z0-9+/=]+$/);
   });
 
   it("rejects oversized skillContent", async () => {

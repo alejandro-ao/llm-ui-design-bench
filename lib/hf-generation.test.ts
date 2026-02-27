@@ -118,6 +118,47 @@ describe("generateHtmlWithHuggingFace", () => {
     expect(result.attempts).toHaveLength(1);
   });
 
+  it("sends reference images as data URLs when provided", async () => {
+    completionCreateMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: "<!doctype html><html><body>generated</body></html>",
+          },
+        },
+      ],
+    });
+
+    await generateHtmlWithHuggingFace({
+      hfApiKey: "hf_test_key",
+      modelId: "moonshotai/kimi-k2",
+      prompt: "Improve design",
+      baselineHtml: "<html><body>baseline</body></html>",
+      referenceImage: {
+        mimeType: "image/png",
+        base64Data: "dGVzdA==",
+      },
+    });
+
+    const request = completionCreateMock.mock.calls[0]?.[0] as {
+      messages?: Array<{ role: string; content: unknown }>;
+    };
+    const userMessage = request.messages?.find((message) => message.role === "user");
+    expect(userMessage).toBeTruthy();
+    expect(userMessage?.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining("Use this baseline HTML as input context:"),
+      },
+      {
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,dGVzdA==",
+        },
+      },
+    ]);
+  });
+
   it("retries provider timeouts and falls back to auto routing", async () => {
     completionCreateMock
       .mockRejectedValueOnce(

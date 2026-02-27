@@ -254,4 +254,60 @@ describe("POST /api/generate", () => {
       ],
     });
   });
+
+  it("builds and forwards referenceImage for image_to_code task", async () => {
+    const projectRoot = await createProjectRoot();
+    process.env.PROJECT_ROOT = projectRoot;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    generateMock.mockResolvedValue({
+      html: "<!doctype html><html><body>image task output</body></html>",
+      usedModel: "gpt-4.1",
+      usedProvider: "openai",
+      attempts: [
+        {
+          model: "gpt-4.1",
+          provider: "openai",
+          status: "success",
+          retryable: false,
+          durationMs: 650,
+        },
+      ],
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/generate", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          provider: "openai",
+          openaiApiKey: "sk_test_key",
+          modelId: "gpt-4.1",
+          taskId: "image_to_code",
+          taskContext: {
+            imageId: "figma_landing",
+            imageUrl: "http://localhost/task-assets/image-to-code/figma.png",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    const calledInput = generateMock.mock.calls.at(-1)?.[0] as {
+      referenceImage?: {
+        mimeType: string;
+        base64Data: string;
+      };
+      prompt: string;
+    };
+    expect(calledInput.prompt).toContain("Reference image URL: http://localhost/task-assets/image-to-code/figma.png");
+    expect(calledInput.referenceImage).toMatchObject({
+      mimeType: "image/png",
+    });
+    expect(calledInput.referenceImage?.base64Data).toMatch(/^[A-Za-z0-9+/=]+$/);
+  });
 });

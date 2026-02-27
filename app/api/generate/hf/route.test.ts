@@ -234,6 +234,10 @@ describe("POST /api/generate/hf", () => {
     const calledInput = generateMock.mock.calls.at(-1)?.[0] as {
       prompt: string;
       baselineHtml: string;
+      referenceImage?: {
+        mimeType: string;
+        base64Data: string;
+      };
     };
     expect(calledInput.baselineHtml).toBe("");
     expect(calledInput.prompt).toContain(
@@ -243,6 +247,10 @@ describe("POST /api/generate/hf", () => {
       "Hero Glow Background: http://localhost/task-assets/image-to-code/hero.png",
     );
     expect(calledInput.prompt).not.toContain(SHARED_PROMPT);
+    expect(calledInput.referenceImage).toMatchObject({
+      mimeType: "image/png",
+    });
+    expect(calledInput.referenceImage?.base64Data).toMatch(/^[A-Za-z0-9+/=]+$/);
   });
 
   it("rejects oversized skillContent", async () => {

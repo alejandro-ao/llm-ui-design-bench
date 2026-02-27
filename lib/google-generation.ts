@@ -3,6 +3,7 @@ import {
   buildUserPrompt,
   GenerationAttempt,
   GenerationError,
+  type GenerationReferenceImage,
   GenerationResult,
   type GenerationUsage,
   StreamingCallbacks,
@@ -15,6 +16,7 @@ interface GenerateWithGoogleInput {
   modelId: string;
   prompt: string;
   baselineHtml: string;
+  referenceImage?: GenerationReferenceImage;
 }
 
 interface GenerateWithGoogleStreamedInput extends GenerateWithGoogleInput, StreamingCallbacks {}
@@ -113,11 +115,51 @@ function buildGoogleUrl(modelId: string, apiKey: string): string {
   return `${normalizedBase}/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 }
 
+function buildGoogleUserParts(
+  prompt: string,
+  baselineHtml: string,
+  referenceImage: GenerationReferenceImage | undefined,
+): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  const textPrompt = buildUserPrompt(prompt, baselineHtml);
+  if (!referenceImage) {
+    return [{ text: textPrompt }];
+  }
+
+  return [
+    { text: textPrompt },
+    {
+      inlineData: {
+        mimeType: referenceImage.mimeType,
+        data: referenceImage.base64Data,
+      },
+    },
+  ];
+}
+
+function isUnsupportedImageInputError(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 422) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  if (!normalized.includes("image")) {
+    return false;
+  }
+
+  return (
+    normalized.includes("not support") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("only text") ||
+    normalized.includes("invalid type")
+  );
+}
+
 async function requestGoogle({
   apiKey,
   modelId,
   prompt,
   baselineHtml,
+  referenceImage,
 }: GenerateWithGoogleInput): Promise<{ html: string; usage: GenerationUsage | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -135,7 +177,7 @@ async function requestGoogle({
         contents: [
           {
             role: "user",
-            parts: [{ text: buildUserPrompt(prompt, baselineHtml) }],
+            parts: buildGoogleUserParts(prompt, baselineHtml, referenceImage),
           },
         ],
         generationConfig: {
@@ -187,7 +229,24 @@ export async function generateHtmlWithGoogle(
   const startedAt = Date.now();
 
   try {
-    const response = await requestGoogle(input);
+    let response: Awaited<ReturnType<typeof requestGoogle>>;
+
+    try {
+      response = await requestGoogle(input);
+    } catch (error) {
+      if (
+        input.referenceImage &&
+        error instanceof GenerationError &&
+        isUnsupportedImageInputError(error.status, error.message)
+      ) {
+        response = await requestGoogle({
+          ...input,
+          referenceImage: undefined,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     attempts.push({
       model: input.modelId,

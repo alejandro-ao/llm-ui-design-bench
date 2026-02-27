@@ -5,6 +5,7 @@ import {
   buildUserPrompt,
   GenerationAttempt,
   GenerationError,
+  type GenerationReferenceImage,
   GenerationResult,
   StreamingCallbacks,
   SYSTEM_PROMPT,
@@ -16,6 +17,7 @@ interface GenerateWithOpenAiInput {
   modelId: string;
   prompt: string;
   baselineHtml: string;
+  referenceImage?: GenerationReferenceImage;
 }
 
 interface GenerateWithOpenAiStreamedInput extends GenerateWithOpenAiInput, StreamingCallbacks {}
@@ -121,32 +123,106 @@ function buildOpenAiClient(apiKey: string): OpenAI {
   });
 }
 
+function buildReferenceImageDataUrl(referenceImage: GenerationReferenceImage): string {
+  return `data:${referenceImage.mimeType};base64,${referenceImage.base64Data}`;
+}
+
+function buildOpenAiMessages(
+  prompt: string,
+  baselineHtml: string,
+  referenceImage: GenerationReferenceImage | undefined,
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const userPrompt = buildUserPrompt(prompt, baselineHtml);
+
+  if (!referenceImage) {
+    return [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT,
+      },
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ];
+  }
+
+  return [
+    {
+      role: "system",
+      content: SYSTEM_PROMPT,
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: userPrompt,
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: buildReferenceImageDataUrl(referenceImage),
+          },
+        },
+      ],
+    },
+  ];
+}
+
+function isUnsupportedImageInputError(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 422) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  if (!normalized.includes("image")) {
+    return false;
+  }
+
+  return (
+    normalized.includes("not support") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("only text") ||
+    normalized.includes("invalid type")
+  );
+}
+
 export async function generateHtmlWithOpenAi({
   apiKey,
   modelId,
   prompt,
   baselineHtml,
+  referenceImage,
 }: GenerateWithOpenAiInput): Promise<GenerationResult> {
   const attempts: GenerationAttempt[] = [];
   const startedAt = Date.now();
 
   try {
     const client = buildOpenAiClient(apiKey);
-    const payload = await client.chat.completions.create({
-      model: modelId,
-      temperature: 0.2,
-      max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: buildUserPrompt(prompt, baselineHtml),
-        },
-      ],
-    });
+    let payload: Awaited<ReturnType<typeof client.chat.completions.create>>;
+
+    try {
+      payload = await client.chat.completions.create({
+        model: modelId,
+        temperature: 0.2,
+        max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+        messages: buildOpenAiMessages(prompt, baselineHtml, referenceImage),
+      });
+    } catch (error) {
+      const parsed = parseOpenAiError(error);
+      if (!referenceImage || !isUnsupportedImageInputError(parsed.status, parsed.detail)) {
+        throw error;
+      }
+
+      payload = await client.chat.completions.create({
+        model: modelId,
+        temperature: 0.2,
+        max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+        messages: buildOpenAiMessages(prompt, baselineHtml, undefined),
+      });
+    }
+
     const usage = normalizeOpenAiUsage(payload.usage);
 
     const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
@@ -189,6 +265,7 @@ export async function generateHtmlWithOpenAiStreamed({
   modelId,
   prompt,
   baselineHtml,
+  referenceImage,
   onAttempt,
   onToken,
 }: GenerateWithOpenAiStreamedInput): Promise<GenerationResult> {
@@ -205,25 +282,36 @@ export async function generateHtmlWithOpenAiStreamed({
 
   try {
     const client = buildOpenAiClient(apiKey);
-    const stream = await client.chat.completions.create({
-      model: modelId,
-      temperature: 0.2,
-      max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
+    let stream: Awaited<ReturnType<typeof client.chat.completions.create>>;
+
+    try {
+      stream = await client.chat.completions.create({
+        model: modelId,
+        temperature: 0.2,
+        max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+        messages: buildOpenAiMessages(prompt, baselineHtml, referenceImage),
+        stream: true,
+        stream_options: {
+          include_usage: true,
         },
-        {
-          role: "user",
-          content: buildUserPrompt(prompt, baselineHtml),
+      });
+    } catch (error) {
+      const parsed = parseOpenAiError(error);
+      if (!referenceImage || !isUnsupportedImageInputError(parsed.status, parsed.detail)) {
+        throw error;
+      }
+
+      stream = await client.chat.completions.create({
+        model: modelId,
+        temperature: 0.2,
+        max_completion_tokens: resolveGenerationMaxTokens(process.env.GENERATION_MAX_TOKENS),
+        messages: buildOpenAiMessages(prompt, baselineHtml, undefined),
+        stream: true,
+        stream_options: {
+          include_usage: true,
         },
-      ],
-      stream: true,
-      stream_options: {
-        include_usage: true,
-      },
-    });
+      });
+    }
 
     let rawContent = "";
     let usage = null;

@@ -1,6 +1,10 @@
 import { OpenAI } from "openai";
 
-import type { GenerationCost, GenerationUsage } from "@/lib/generation-types";
+import type {
+  GenerationCost,
+  GenerationReferenceImage,
+  GenerationUsage,
+} from "@/lib/generation-types";
 import { normalizeGenerationUsage } from "@/lib/pricing";
 
 export interface HfGenerationAttempt {
@@ -58,6 +62,7 @@ interface GenerateWithHfInput {
   billTo?: string;
   prompt: string;
   baselineHtml: string;
+  referenceImage?: GenerationReferenceImage;
   traceId?: string;
 }
 
@@ -495,14 +500,63 @@ function createOpenAiClient({
   });
 }
 
-function buildChatMessages(prompt: string, baselineHtml: string) {
+function buildReferenceImageDataUrl(referenceImage: GenerationReferenceImage): string {
+  return `data:${referenceImage.mimeType};base64,${referenceImage.base64Data}`;
+}
+
+function buildChatMessages(
+  prompt: string,
+  baselineHtml: string,
+  referenceImage: GenerationReferenceImage | undefined,
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const userPrompt = buildUserPrompt(prompt, baselineHtml);
+
+  if (!referenceImage) {
+    return [
+      { role: "system" as const, content: SYSTEM_PROMPT },
+      {
+        role: "user" as const,
+        content: userPrompt,
+      },
+    ];
+  }
+
   return [
     { role: "system" as const, content: SYSTEM_PROMPT },
     {
       role: "user" as const,
-      content: buildUserPrompt(prompt, baselineHtml),
+      content: [
+        {
+          type: "text",
+          text: userPrompt,
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: buildReferenceImageDataUrl(referenceImage),
+          },
+        },
+      ],
     },
   ];
+}
+
+function isUnsupportedImageInputError(status: number, detail: string | null): boolean {
+  if ((status !== 400 && status !== 422) || !detail) {
+    return false;
+  }
+
+  const normalized = detail.toLowerCase();
+  if (!normalized.includes("image")) {
+    return false;
+  }
+
+  return (
+    normalized.includes("not support") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("only text") ||
+    normalized.includes("invalid type")
+  );
 }
 
 export function extractHtmlDocument(rawContent: string): string {
@@ -568,6 +622,7 @@ export async function generateHtmlWithHuggingFace({
   billTo,
   prompt,
   baselineHtml,
+  referenceImage,
   traceId,
 }: GenerateWithHfInput): Promise<HfGenerationResult> {
   const requestId = traceId?.trim() || `hf-${Date.now().toString(36)}`;
@@ -623,12 +678,39 @@ export async function generateHtmlWithHuggingFace({
     const startedAt = Date.now();
 
     try {
-      const payload = await client.chat.completions.create({
-        model: plan.model,
-        temperature: 0.2,
-        max_tokens: maxTokens,
-        messages: buildChatMessages(prompt, baselineHtml),
-      });
+      let payload: Awaited<ReturnType<typeof client.chat.completions.create>>;
+
+      try {
+        payload = await client.chat.completions.create({
+          model: plan.model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: buildChatMessages(prompt, baselineHtml, referenceImage),
+        });
+      } catch (error) {
+        const parsed = parseOpenAiError(error);
+        if (!referenceImage || !isUnsupportedImageInputError(parsed.status, parsed.detail)) {
+          throw error;
+        }
+
+        logHfGeneration("warn", "attempt_image_not_supported", {
+          requestId,
+          attempt: attemptIndex + 1,
+          totalAttempts: attemptPlan.length,
+          model: plan.model,
+          provider: plan.provider,
+          status: parsed.status,
+          upstreamDetail: parsed.detail,
+        });
+
+        payload = await client.chat.completions.create({
+          model: plan.model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: buildChatMessages(prompt, baselineHtml, undefined),
+        });
+      }
+
       const usage = normalizeOpenAiUsage(payload.usage);
 
       const content = coerceMessageContent(payload.choices?.[0]?.message?.content);
@@ -770,6 +852,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
   billTo,
   prompt,
   baselineHtml,
+  referenceImage,
   traceId,
   onAttempt,
   onToken,
@@ -843,16 +926,48 @@ export async function generateHtmlWithHuggingFaceStreamed({
     let streamFinishReason: string | null = null;
 
     try {
-      const stream = await client.chat.completions.create({
-        model: plan.model,
-        temperature: 0.2,
-        max_tokens: maxTokens,
-        messages: buildChatMessages(prompt, baselineHtml),
-        stream: true,
-        stream_options: {
-          include_usage: true,
-        },
-      });
+      let stream: Awaited<ReturnType<typeof client.chat.completions.create>>;
+
+      try {
+        stream = await client.chat.completions.create({
+          model: plan.model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: buildChatMessages(prompt, baselineHtml, referenceImage),
+          stream: true,
+          stream_options: {
+            include_usage: true,
+          },
+        });
+      } catch (error) {
+        const parsed = parseOpenAiError(error);
+        if (!referenceImage || !isUnsupportedImageInputError(parsed.status, parsed.detail)) {
+          throw error;
+        }
+
+        logHfGeneration("warn", "attempt_image_not_supported", {
+          requestId,
+          attempt: attemptIndex + 1,
+          totalAttempts: attemptPlan.length,
+          model: plan.model,
+          provider: plan.provider,
+          status: parsed.status,
+          upstreamDetail: parsed.detail,
+          mode: "stream",
+        });
+        await onLog?.("Provider rejected image input. Retrying this attempt without image.");
+
+        stream = await client.chat.completions.create({
+          model: plan.model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: buildChatMessages(prompt, baselineHtml, undefined),
+          stream: true,
+          stream_options: {
+            include_usage: true,
+          },
+        });
+      }
 
       let usage: GenerationUsage | null = null;
 
@@ -983,6 +1098,7 @@ export async function generateHtmlWithHuggingFaceStreamed({
             billTo,
             prompt,
             baselineHtml,
+            referenceImage,
             traceId: requestId,
           });
 

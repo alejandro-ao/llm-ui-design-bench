@@ -31,6 +31,7 @@ import {
   resolveTaskRequest,
   TaskValidationError,
 } from "@/lib/tasks";
+import { buildTaskReferenceImage } from "@/lib/task-reference-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -210,6 +211,16 @@ export async function POST(request: NextRequest) {
     const baselineHtml = taskDefinition.usesBaselineArtifact ? await getBaselineHtml() : "";
     const basePrompt = buildTaskPrompt(taskId, taskContext);
     const prompt = buildPromptWithSkill(basePrompt, normalizedSkillContent);
+    let referenceImage = null;
+
+    try {
+      referenceImage = await buildTaskReferenceImage(taskId, taskContext);
+    } catch (error) {
+      logGenerateStreamRoute("warn", "reference_image_unavailable", {
+        taskId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     const plannedAttempts = buildHfAttemptPlan(modelId, provider, providers);
     const encoder = new TextEncoder();
 
@@ -252,6 +263,7 @@ export async function POST(request: NextRequest) {
               billTo: billTo || undefined,
               prompt,
               baselineHtml,
+              referenceImage: referenceImage ?? undefined,
               onAttempt: async (attempt) => {
                 enqueue("attempt", attempt);
                 enqueue("log", {
