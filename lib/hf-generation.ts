@@ -710,7 +710,6 @@ export async function generateHtmlWithHuggingFace({
           messages: buildChatMessages(prompt, baselineHtml, undefined),
         });
       }
-
       const usage = normalizeOpenAiUsage(payload.usage);
 
       const content = coerceMessageContent(payload.choices?.[0]?.message?.content);

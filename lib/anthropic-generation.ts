@@ -395,7 +395,6 @@ export async function generateHtmlWithAnthropic(
         throw error;
       }
     }
-
     attempts.push({
       model: input.modelId,
       provider: "anthropic",
@@ -613,7 +612,6 @@ export async function generateHtmlWithAnthropicStreamed({
         "Anthropic stop_reason=max_tokens. Output may be truncated; consider increasing GENERATION_MAX_TOKENS.",
       );
     }
-
     attempts.push({
       model: input.modelId,
       provider: "anthropic",
